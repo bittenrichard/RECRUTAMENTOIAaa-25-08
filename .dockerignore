@@ -1,0 +1,11 @@
+# Arquivo: .dockerignore
+
+# Ignorar dependências do Node.js
+node_modules
+
+# Ignorar arquivos de build e de log
+dist
+npm-debug.log
+
+# Ignorar arquivos do Vite
+.vite

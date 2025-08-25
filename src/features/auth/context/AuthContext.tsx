@@ -1,5 +1,4 @@
-// Local: src/features/auth/context/AuthContext.tsx
-
+// Caminho: src/features/auth/context/AuthContext.tsx
 import React, { createContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { AuthState, LoginCredentials, SignUpCredentials, UserProfile } from '../types';
 
@@ -19,7 +18,7 @@ interface AuthProviderProps {
 }
 
 // Pega a URL base da API das variáveis de ambiente do Vite
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [authState, setAuthState] = useState<AuthState>({
@@ -62,7 +61,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       return;
     }
     try {
-      // Chame o backend para buscar o perfil atualizado
+      // Usa a URL completa
       const response = await fetch(`${API_BASE_URL}/api/users/${authState.profile.id}`);
       if (!response.ok) {
         throw new Error('Falha ao buscar perfil atualizado.');
@@ -80,6 +79,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setAuthError(null);
     setAuthState(prev => ({ ...prev, isLoading: true }));
     try {
+      // Usa a URL completa
       const response = await fetch(`${API_BASE_URL}/api/auth/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -107,6 +107,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setAuthError(null);
     setAuthState(prev => ({ ...prev, isLoading: true }));
     try {
+      // Usa a URL completa
       const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

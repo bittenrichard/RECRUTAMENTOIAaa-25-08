@@ -1,4 +1,4 @@
-// Caminho do arquivo: server.ts
+// Caminho: server.ts
 // SUBSTITUA O CONTEÚDO INTEIRO DESTE ARQUIVO
 
 import dotenv from 'dotenv';
@@ -15,7 +15,9 @@ import multer from 'multer';
 const app = express();
 const port = 3001;
 
-const upload = multer();
+// Configuração do Multer para upload de ficheiros em memória
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
 
 const corsOptions = {
   origin: '*'
@@ -318,6 +320,11 @@ app.delete('/api/jobs/:jobId', async (req: Request, res: Response) => {
   }
 });
 
+// ==================================================================
+// === INÍCIO DAS NOVAS FUNCIONALIDADES (FASE 1) =======================
+// ==================================================================
+
+// 1. ROTA DE ATUALIZAÇÃO DE STATUS - Agora mais flexível e com os novos status
 app.patch('/api/candidates/:candidateId/status', async (req: Request, res: Response) => {
   const { candidateId } = req.params;
   const { status } = req.body;
@@ -326,9 +333,14 @@ app.patch('/api/candidates/:candidateId/status', async (req: Request, res: Respo
     return res.status(400).json({ error: 'ID do candidato e status são obrigatórios.' });
   }
 
-  const validStatuses = ['Triagem', 'Entrevista', 'Aprovado', 'Reprovado'];
+  // Validação com a nova lista de status do funil
+  const validStatuses = [
+    'Triagem', 'Entrevista por Vídeo', 'Teste Teórico',
+    'Teste Prático', 'Contratado', 'Aprovado', 'Reprovado', 'Entrevista'
+  ];
+
   if (!validStatuses.includes(status)) {
-    return res.status(400).json({ error: 'Status inválido fornecido.' });
+    return res.status(400).json({ error: 'Status fornecido é inválido.' });
   }
 
   try {
@@ -339,6 +351,70 @@ app.patch('/api/candidates/:candidateId/status', async (req: Request, res: Respo
     res.status(500).json({ error: 'Não foi possível atualizar o status do candidato.' });
   }
 });
+
+// 2. NOVA ROTA - Upload de Vídeo de Entrevista
+app.post('/api/candidates/:candidateId/video-interview', upload.single('video'), async (req, res) => {
+    const { candidateId } = req.params;
+    const file = req.file;
+
+    if (!file) {
+        return res.status(400).json({ error: 'Nenhum ficheiro de vídeo foi enviado.' });
+    }
+
+    try {
+        const uploadedFileData = await baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
+        
+        // Atualiza a linha do candidato com o ficheiro de vídeo
+        // O nome do campo deve ser EXATAMENTE o mesmo que está no Baserow: `video_entrevista`
+        const updatedCandidate = await baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), {
+            video_entrevista: [{ name: uploadedFileData.name }],
+        });
+
+        res.status(200).json({
+            message: 'Vídeo de entrevista enviado com sucesso!',
+            candidate: updatedCandidate
+        });
+
+    } catch (error: any) {
+        console.error('Erro no upload do vídeo de entrevista:', error.message);
+        res.status(500).json({ error: 'Falha ao processar o upload do vídeo.' });
+    }
+});
+
+// 3. NOVA ROTA - Upload de Resultado do Teste Teórico
+app.post('/api/candidates/:candidateId/theoretical-test', upload.single('testResult'), async (req, res) => {
+    const { candidateId } = req.params;
+    const file = req.file;
+
+    if (!file) {
+        return res.status(400).json({ error: 'Nenhum ficheiro de resultado foi enviado.' });
+    }
+
+    try {
+        const uploadedFileData = await baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
+        
+        // Atualiza a linha do candidato com o resultado do teste
+        // O nome do campo deve ser EXATAMENTE o mesmo que está no Baserow: `resultado_teste_teorico`
+        const updatedCandidate = await baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), {
+            resultado_teste_teorico: [{ name: uploadedFileData.name }],
+        });
+
+        res.status(200).json({
+            message: 'Resultado do teste enviado com sucesso!',
+            candidate: updatedCandidate
+        });
+
+    } catch (error: any) {
+        console.error('Erro no upload do resultado do teste:', error.message);
+        res.status(500).json({ error: 'Falha ao processar o upload do resultado.' });
+    }
+});
+
+
+// ==================================================================
+// === FIM DAS NOVAS FUNCIONALIDADES (FASE 1) =========================
+// ==================================================================
+
 
 app.get('/api/data/all/:userId', async (req: Request, res: Response) => {
   const { userId } = req.params;
@@ -414,10 +490,7 @@ app.get('/api/data/all/:userId', async (req: Request, res: Response) => {
       const enrichedCandidate = {
         ...candidate,
         vaga: vagaLink,
-        // --- INÍCIO DA CORREÇÃO ---
-        // Acessamos a propriedade 'value' do objeto de status para enviar apenas o texto.
         behavioral_test_status: behavioralTest && behavioralTest.status ? behavioralTest.status.value : null,
-        // --- FIM DA CORREÇÃO ---
         resumo_perfil: behavioralTest ? behavioralTest.resumo_perfil : null,
         perfil_executor: behavioralTest ? behavioralTest.perfil_executor : null,
         perfil_comunicador: behavioralTest ? behavioralTest.perfil_comunicador : null,

@@ -1,48 +1,39 @@
-# Dockerfile.frontend
-
-# --- Estágio 1: Build da Aplicação React ---
-# Usa uma imagem Node.js para construir o projeto.
+# Estágio 1: Build da Aplicação React com Vite
 FROM node:20-slim AS build
 
-# Define o diretório de trabalho dentro do contêiner.
 WORKDIR /app
 
-# Copia os ficheiros de manifesto de pacotes.
+# Copia AMBOS os arquivos de pacote.
 COPY package*.json ./
 
-# Instala todas as dependências do projeto.
+# --- A CORREÇÃO CRÍTICA ---
+# Remove o package-lock.json existente para forçar a criação de um novo,
+# 100% compatível com o ambiente Linux do container.
+# Isso resolve o problema de dependências opcionais (@rollup/rollup-linux-x64-gnu).
+RUN rm -f package-lock.json
+
+# Instala as dependências do zero, gerando um novo lock file.
+# Voltamos para 'npm install' pois 'npm ci' requer um lock file que acabamos de remover.
 RUN npm install
 
-# Copia o resto do código-fonte da sua aplicação.
+# Copia todo o resto do código-fonte
 COPY . .
 
-# APLICAÇÃO DA REGRA SUPREMA (Parte 1):
-# Declara que este Dockerfile espera receber um argumento.
-ARG VITE_API_BASE_URL
-
-# APLICAÇÃO DA REGRA SUPREMA (Parte 2):
-# Transforma o argumento numa variável de ambiente que o Vite pode ler.
-ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
-
-# Executa o script de build do Vite para gerar os ficheiros estáticos de produção.
+# Executa o script de build do Vite
 RUN npm run build
 
-
-# --- Estágio 2: Servidor de Produção com Nginx ---
-# Usa uma imagem Nginx leve para servir os ficheiros estáticos.
+# Estágio 2: Servir a Aplicação com Nginx
 FROM nginx:1.27-alpine
 
-# Remove a configuração padrão do Nginx.
+# Remove a configuração padrão do Nginx
 RUN rm /etc/nginx/conf.d/default.conf
 
-# Copia a sua configuração personalizada do Nginx para o local correto.
+# Copia a nossa configuração personalizada do Nginx
 COPY nginx.conf /etc/nginx/conf.d
 
-# Copia os ficheiros de build do estágio anterior para o diretório que o Nginx serve.
+# Copia os arquivos estáticos gerados no estágio de build
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Expõe a porta 80 para o tráfego externo.
 EXPOSE 80
 
-# O comando para iniciar o servidor Nginx em primeiro plano.
 CMD ["nginx", "-g", "daemon off;"]

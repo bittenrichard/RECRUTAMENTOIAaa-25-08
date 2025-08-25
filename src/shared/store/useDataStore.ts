@@ -1,5 +1,4 @@
-// Local: src/shared/store/useDataStore.ts
-
+// Caminho: src/shared/store/useDataStore.ts
 import { create } from 'zustand';
 import { JobPosting } from '../../features/screening/types';
 import { Candidate } from '../../shared/types';
@@ -18,7 +17,7 @@ interface DataState {
 }
 
 // Pega a URL base da API das variáveis de ambiente do Vite
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 export const useDataStore = create<DataState>((set) => ({
   jobs: [],
@@ -29,6 +28,7 @@ export const useDataStore = create<DataState>((set) => ({
   fetchAllData: async (profile: UserProfile) => {
     set({ isDataLoading: true, error: null });
     try {
+      // Usa a URL completa
       const response = await fetch(`${API_BASE_URL}/api/data/all/${profile.id}`);
       if (!response.ok) {
         throw new Error('Falha ao carregar dados do servidor.');
@@ -56,6 +56,7 @@ export const useDataStore = create<DataState>((set) => ({
 
   deleteJobById: async (jobId: number) => {
     try {
+      // Usa a URL completa
       const response = await fetch(`${API_BASE_URL}/api/jobs/${jobId}`, {
         method: 'DELETE',
       });
