@@ -1,0 +1,29 @@
+# Dockerfile.frontend
+
+# Estágio 1: Build da aplicação React
+FROM node:20-slim AS build
+
+WORKDIR /app
+
+# Declara o argumento que será recebido do docker-compose.yml
+ARG VITE_API_BASE_URL
+
+# Torna a variável de ambiente disponível para o processo de build
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+
+COPY package.json ./
+RUN npm install
+COPY . .
+# Executa o script de build do Vite para gerar os arquivos estáticos
+RUN npm run build
+
+# Estágio 2: Servidor de Produção com Nginx
+FROM nginx:1.27-alpine
+
+RUN rm /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/conf.d
+
+COPY --from=build /app/dist /usr/share/nginx/html
+
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

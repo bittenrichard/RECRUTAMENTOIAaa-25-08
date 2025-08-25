@@ -1,0 +1,47 @@
+# Local: Dockerfile.backend
+
+# --- Estágio 1: Build da Aplicação ---
+# Imagem base com Node.js e Alpine Linux para um tamanho menor
+FROM node:20-alpine AS build
+
+# Define o diretório de trabalho
+WORKDIR /app
+
+# Copia os arquivos de definição de pacotes
+COPY package.json ./
+COPY package-lock.json ./
+
+# Instala TODAS as dependências, incluindo as de desenvolvimento (devDependencies)
+# 'typescript' é uma devDependency e é necessária para o build
+RUN npm install
+
+# Copia todo o restante do código-fonte
+COPY . .
+
+# Compila o TypeScript para JavaScript
+# O tsconfig.server.json garante que apenas o backend seja compilado
+RUN npm run build:server
+
+
+# --- Estágio 2: Imagem Final de Produção ---
+# Imagem base mais enxuta para produção, ideal para rodar a aplicação
+FROM node:20-slim
+
+# Define o diretório de trabalho
+WORKDIR /app
+
+# Copia o package.json e package-lock.json para instalar apenas as dependências de produção
+COPY package.json ./
+COPY package-lock.json ./
+
+# Instala APENAS as dependências de produção e lida com dependências de pares legadas se necessário
+RUN npm install --omit=dev --legacy-peer-deps
+
+# CORREÇÃO AQUI: Copia da pasta correta 'dist-server' para a pasta 'dist' na imagem final
+COPY --from=build /app/dist-server ./dist
+
+# Expõe a porta que a aplicação vai rodar
+EXPOSE 3001
+
+# Define o comando para iniciar a aplicação, executando o server.js compilado
+CMD ["node", "dist/server.js"]

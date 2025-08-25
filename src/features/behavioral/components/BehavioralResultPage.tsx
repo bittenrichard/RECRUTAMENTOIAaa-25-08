@@ -1,0 +1,25 @@
+// CÓDIGO COMPLETO DO NOVO ARQUIVO
+import React, { useState, useEffect, useCallback } from 'react';
+import { BehavioralTestResult } from '../types';
+import { Loader2, AlertTriangle, Calendar, CheckCircle, BrainCircuit } from 'lucide-react';
+import ProfileChart from './ProfileChart';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+interface BehavioralResultPageProps { testId: number; onBack: () => void; }
+const LoadingState: React.FC<{ message: string }> = ({ message }) => (<div className="text-center py-20"><Loader2 className="mx-auto h-12 w-12 text-indigo-600 animate-spin" /><h3 className="mt-4 text-xl font-semibold text-gray-800">{message}</h3><p className="mt-2 text-gray-600">Isso pode levar alguns instantes.</p></div>);
+const ErrorState: React.FC<{ message: string, onRetry: () => void }> = ({ message, onRetry }) => (<div className="text-center py-20 bg-red-50 p-8 rounded-lg"><AlertTriangle className="mx-auto h-12 w-12 text-red-500" /><h3 className="mt-4 text-xl font-semibold text-red-800">Ocorreu um Erro</h3><p className="mt-2 text-red-700">{message}</p><button onClick={onRetry} className="mt-6 px-6 py-2 bg-red-600 text-white font-semibold rounded-md hover:bg-red-700 transition-colors">Tentar Novamente</button></div>);
+const BehavioralResultPage: React.FC<BehavioralResultPageProps> = ({ testId, onBack }) => {
+    const [result, setResult] = useState<BehavioralTestResult | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const fetchResult = useCallback(async () => { try { const response = await fetch(`${API_BASE_URL}/api/behavioral-test/result/${testId}`); if (!response.ok) { const data = await response.json(); throw new Error(data.error || 'Falha ao buscar o resultado do teste.'); } const { data } = await response.json(); setResult(data); return data; } catch (err: any) { setError(err.message); return null; } }, [testId]);
+    useEffect(() => { let intervalId: NodeJS.Timeout; const loadAndPoll = async () => { setIsLoading(true); const initialResult = await fetchResult(); setIsLoading(false); if (initialResult?.status === 'Processando') { intervalId = setInterval(async () => { const currentResult = await fetchResult(); if (currentResult?.status === 'Concluído' || currentResult?.status === 'Erro') { clearInterval(intervalId); } }, 5000); } }; loadAndPoll(); return () => { if (intervalId) { clearInterval(intervalId); } }; }, [fetchResult]);
+    if (isLoading) { return <LoadingState message="Buscando resultado do teste..." />; }
+    if (error) { return <ErrorState message={error} onRetry={fetchResult} />; }
+    if (!result) { return <ErrorState message="Não foi possível carregar os dados do resultado." onRetry={fetchResult} />; }
+    if (result.status === 'Processando') { return <LoadingState message="Aguardando análise da IA..." />; }
+    const chartData = { executor: result.perfil_executor || 0, comunicador: result.perfil_comunicador || 0, planejador: result.perfil_planejador || 0, analista: result.perfil_analista || 0, };
+    return (<div className="fade-in max-w-5xl mx-auto space-y-8"><button onClick={onBack} className="text-indigo-600 hover:underline">&larr; Voltar para a lista</button><div className="bg-white p-8 rounded-lg shadow-md border border-gray-200"><div className="flex flex-col sm:flex-row justify-between items-start"><div><h1 className="text-3xl font-bold text-gray-900">{result.candidato[0]?.value || 'Candidato'}</h1><div className="flex items-center text-gray-500 mt-2"><Calendar size={16} className="mr-2" /><span>Teste respondido em: {format(new Date(result.data_de_resposta), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}</span></div></div><div className="mt-4 sm:mt-0 flex items-center gap-2 text-green-600 font-semibold bg-green-50 px-4 py-2 rounded-full"><CheckCircle size={20} /><span>Análise Concluída</span></div></div></div><div className="grid grid-cols-1 lg:grid-cols-3 gap-8"><div className="lg:col-span-2 space-y-8"><div className="bg-white p-6 rounded-lg shadow-md border border-gray-200"><h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center"><BrainCircuit size={20} className="mr-2 text-indigo-600"/> Resumo do Perfil</h3><p className="text-gray-700 leading-relaxed">{result.resumo_perfil || 'Nenhum resumo gerado.'}</p></div><div className="bg-white p-6 rounded-lg shadow-md border border-gray-200"><h3 className="text-lg font-semibold text-gray-800 mb-4">Habilidades Comuns</h3><p className="text-gray-700 leading-relaxed">{result.habilidades_comuns || 'Nenhuma habilidade comum gerada.'}</p></div><div className="bg-white p-6 rounded-lg shadow-md border border-gray-200"><h3 className="text-lg font-semibold text-gray-800 mb-4">Indicadores</h3><p className="text-gray-700 leading-relaxed">{result.indicadores || 'Nenhum indicador gerado.'}</p></div></div><div className="lg:col-span-1"><ProfileChart data={chartData} /></div></div></div>);
+};
+export default BehavioralResultPage;
