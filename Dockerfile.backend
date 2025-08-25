@@ -1,47 +1,43 @@
-# Local: Dockerfile.backend
+# Dockerfile.backend
 
-# --- Estágio 1: Build da Aplicação ---
-# Imagem base com Node.js e Alpine Linux para um tamanho menor
-FROM node:20-alpine AS build
+# --- Estágio 1: Build ---
+# Usa uma imagem Node.js completa para construir a aplicação TypeScript de forma segura.
+FROM node:20-slim AS builder
 
-# Define o diretório de trabalho
+# Define o diretório de trabalho.
 WORKDIR /app
 
-# Copia os arquivos de definição de pacotes
-COPY package.json ./
-COPY package-lock.json ./
+# Copia os ficheiros de manifesto de pacotes.
+COPY package*.json ./
 
-# Instala TODAS as dependências, incluindo as de desenvolvimento (devDependencies)
-# 'typescript' é uma devDependency e é necessária para o build
+# Instala todas as dependências necessárias para o build.
 RUN npm install
 
-# Copia todo o restante do código-fonte
+# Copia o resto do código-fonte da sua aplicação.
 COPY . .
 
-# Compila o TypeScript para JavaScript
-# O tsconfig.server.json garante que apenas o backend seja compilado
+# Executa o script de build para compilar o TypeScript para JavaScript.
 RUN npm run build:server
 
 
-# --- Estágio 2: Imagem Final de Produção ---
-# Imagem base mais enxuta para produção, ideal para rodar a aplicação
-FROM node:20-slim
+# --- Estágio 2: Produção ---
+# Usa uma imagem Node.js limpa e otimizada para a execução.
+FROM node:20-slim AS production
 
-# Define o diretório de trabalho
+# Define o diretório de trabalho.
 WORKDIR /app
 
-# Copia o package.json e package-lock.json para instalar apenas as dependências de produção
-COPY package.json ./
-COPY package-lock.json ./
+# Copia os ficheiros de manifesto de pacotes.
+COPY package*.json ./
 
-# Instala APENAS as dependências de produção e lida com dependências de pares legadas se necessário
-RUN npm install --omit=dev --legacy-peer-deps
+# Instala APENAS as dependências de produção, ignorando as de desenvolvimento.
+RUN npm install --omit=dev
 
-# CORREÇÃO AQUI: Copia da pasta correta 'dist-server' para a pasta 'dist' na imagem final
-COPY --from=build /app/dist-server ./dist
+# Copia o código já compilado do estágio de build anterior.
+COPY --from=builder /app/dist-server ./dist-server
 
-# Expõe a porta que a aplicação vai rodar
+# Expõe a porta em que a sua API está a ser executada.
 EXPOSE 3001
 
-# Define o comando para iniciar a aplicação, executando o server.js compilado
-CMD ["node", "dist/server.js"]
+# O comando final para iniciar o servidor Node.js em produção.
+CMD ["node", "dist-server/server.js"]

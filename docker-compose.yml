@@ -1,17 +1,16 @@
-# docker-compose.yml (Versão Final e Corrigida)
+# docker-compose.yml
 
 version: '3.8'
 
 services:
   # --- Serviço do Backend (API) ---
   backend:
-    # A tag da sua imagem do backend.
     image: orickjogando/recrutamentoia-backend:1.0.0
     build:
       context: .
       dockerfile: Dockerfile.backend
-    # A SEÇÃO 'env_file' FOI REMOVIDA DAQUI.
-    # As variáveis de ambiente serão injetadas pela sua plataforma de deploy.
+    # As variáveis de ambiente do backend (como tokens e segredos)
+    # devem ser configuradas diretamente na sua plataforma de deploy.
     networks:
       - traefik_network
     deploy:
@@ -19,26 +18,21 @@ services:
       placement:
         constraints: [node.role == manager]
       labels:
-        # --- Configuração do Traefik para o Backend ---
         - "traefik.enable=true"
         - "traefik.docker.network=Foco"
-        # Roteador para a API na URL backend.recrutamentoia.com.br
         - "traefik.http.routers.backend-router.rule=Host(`backend.recrutamentoia.com.br`)"
         - "traefik.http.routers.backend-router.entrypoints=websecure"
         - "traefik.http.routers.backend-router.tls.certresolver=letsencryptresolver"
-        # Serviço que aponta para a porta interna da API (3001)
         - "traefik.http.services.backend-service.loadbalancer.server.port=3001"
 
   # --- Serviço do Frontend (React App) ---
   frontend:
-    # A tag da sua imagem do frontend.
     image: orickjogando/recrutamentoia-frontend:1.0.0
     build:
       context: .
       dockerfile: Dockerfile.frontend
+      # NOTA: A sua plataforma ignora esta secção. A variável deve ser configurada na UI.
       args:
-        # APLICAÇÃO DA REGRA SUPREMA:
-        # Esta linha injeta a URL correta do backend durante o build do frontend.
         VITE_API_BASE_URL: https://backend.recrutamentoia.com.br
     networks:
       - traefik_network
@@ -47,18 +41,13 @@ services:
       placement:
         constraints: [node.role == manager]
       labels:
-        # --- Configuração do Traefik para o Frontend ---
         - "traefik.enable=true"
         - "traefik.docker.network=Foco"
-        # Roteador para o Frontend na URL recrutamentoia.com.br (com e sem www)
         - "traefik.http.routers.frontend-router.rule=Host(`recrutamentoia.com.br`) || Host(`www.recrutamentoia.com.br`)"
         - "traefik.http.routers.frontend-router.entrypoints=websecure"
         - "traefik.http.routers.frontend-router.tls.certresolver=letsencryptresolver"
-        # Serviço que aponta para a porta interna do Nginx (80)
         - "traefik.http.services.frontend-service.loadbalancer.server.port=80"
 
-# --- Definição da Rede Externa do Traefik ---
-# Garante que os contêineres se conectem à rede que o Traefik está monitorando.
 networks:
   traefik_network:
     external: true
