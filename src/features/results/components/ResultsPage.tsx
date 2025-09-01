@@ -1,6 +1,3 @@
-// Caminho: src/features/results/components/ResultsPage.tsx
-// SUBSTITUA O CONTEÚDO INTEIRO DESTE ARQUIVO
-
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { LayoutGrid, List, UploadCloud, ChevronLeft, ChevronRight } from 'lucide-react';
 import CandidateTable from './CandidateTable';
@@ -107,15 +104,12 @@ const ResultsPage: React.FC<ResultsPageProps> = ({ selectedJob }) => {
     setSortConfig({ key, direction });
   };
 
-  // --- OTIMIZAÇÃO APLICADA AQUI ---
   const handleUpdateCandidateStatus = useCallback(async (candidateId: number, newStatus: CandidateStatus) => {
     if (!profile) return;
     
-    // 1. Faz a atualização visual (otimista) imediatamente.
     updateCandidateStatusInStore(candidateId, newStatus);
     
     try {
-      // 2. Envia a requisição para o backend.
       const response = await fetch(`${API_BASE_URL}/api/candidates/${candidateId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -125,11 +119,9 @@ const ResultsPage: React.FC<ResultsPageProps> = ({ selectedJob }) => {
       if (!response.ok) {
         throw new Error('Falha na atualização do status no servidor');
       }
-      // 3. Em caso de sucesso, não fazemos nada. A UI já está atualizada.
       
     } catch (error) {
       console.error('Erro ao atualizar status do candidato:', error);
-      // 4. Em caso de erro, buscamos todos os dados novamente para reverter a UI ao estado real.
       await fetchAllData(profile);
     }
   }, [profile, fetchAllData, updateCandidateStatusInStore]);
@@ -277,7 +269,7 @@ const ResultsPage: React.FC<ResultsPageProps> = ({ selectedJob }) => {
         <ScheduleModal
           isOpen={isScheduleModalOpen}
           onClose={() => setIsScheduleModalOpen(false)}
-          onSchedule={handleScheduleSubmit}
+          onSubmit={handleScheduleSubmit}
           candidate={candidateToSchedule}
           job={selectedJob}
           isGoogleConnected={isGoogleConnected}

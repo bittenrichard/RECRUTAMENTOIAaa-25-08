@@ -26,16 +26,17 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({ columnId, title, candidates
   }));
     
   return (
-    // --- ALTERAÇÃO APLICADA AQUI ---
-    // Adicionámos 'shadow-md' para criar a sombra e 'border' para uma definição extra.
-    <div className="bg-gray-100 rounded-lg p-4 w-full md:w-80 lg:w-96 flex-shrink-0 flex flex-col min-h-full shadow-md border">
+    // --- CORREÇÃO APLICADA AQUI ---
+    // 1. Trocamos 'min-h-full' por 'h-full' para garantir que a coluna ocupe toda a altura disponível.
+    <div className="bg-gray-100 rounded-lg p-4 w-full md:w-80 lg:w-96 flex-shrink-0 flex flex-col h-full shadow-md border">
       <h3 className="font-bold text-gray-800 mb-4 px-2 flex-shrink-0">{title} ({candidates.length})</h3>
       
+      {/* 2. Este contêiner agora cresce para preencher o espaço e permite a rolagem vertical */}
       <div 
         ref={drop}
-        className={`p-2 rounded-md transition-colors duration-200 border-2 border-dashed
+        className={`flex-grow min-h-0 overflow-y-auto hide-scrollbar p-2 rounded-md transition-colors duration-200 border-2 border-dashed
           ${isOver ? 'border-indigo-400 bg-indigo-50' : 'border-transparent'}
-          h-full`}
+        `}
       >
         {candidates.map((candidate) => (
           <CandidateCard

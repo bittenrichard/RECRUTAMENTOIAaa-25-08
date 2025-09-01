@@ -1,6 +1,3 @@
-// Caminho: src/shared/components/Layout/Sidebar.tsx
-// CÓDIGO COMPLETO DO ARQUIVO PARA SUBSTITUIÇÃO
-
 import React from 'react';
 import { LayoutDashboard, PlusCircle, Settings, LogOut, ChevronsLeft, ChevronsRight, Database, Calendar, ClipboardList } from 'lucide-react';
 import { PageKey } from '../../types';
@@ -30,7 +27,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     { key: 'new-screening' as const, label: 'Nova Triagem', icon: PlusCircle },
     { key: 'database' as const, label: 'Banco de Talentos', icon: Database },
     { key: 'agenda' as const, label: 'Agenda', icon: Calendar },
-    { key: 'behavioral-test' as const, label: 'Teste Comportamental', icon: ClipboardList },
+    // { key: 'behavioral-test' as const, label: 'Teste Comportamental', icon: ClipboardList }, // <-- ITEM REMOVIDO
     { key: 'settings' as const, label: 'Configurações', icon: Settings }
   ];
 
@@ -69,7 +66,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             title={item.label}
           >
             <item.icon className={isCollapsed ? '' : 'mr-3'} size={20} />
-            {!isCollapsed && <span>{item.label}</span>}
+            {!isCollapsed && <span className="whitespace-nowrap truncate">{item.label}</span>}
           </button>
         ))}
       </nav>

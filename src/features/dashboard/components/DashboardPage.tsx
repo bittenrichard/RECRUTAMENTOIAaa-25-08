@@ -1,5 +1,3 @@
-// Local: src/features/dashboard/components/DashboardPage.tsx
-
 import React, { useState, useMemo } from 'react';
 import StatCard from './StatCard';
 import RecentScreenings from './RecentScreenings';
@@ -7,26 +5,24 @@ import { useDashboardStats } from '../hooks/useDashboardStats';
 import { JobPosting } from '../../screening/types';
 import { PageKey } from '../../../shared/types';
 import ApprovedCandidatesModal from './ApprovedCandidatesModal';
-import { Candidate } from '../../results/types';
+import { Candidate } from '../../../shared/types';
 import DeleteJobModal from './DeleteJobModal';
+import { useDataStore } from '../../../shared/store/useDataStore';
 
 interface DashboardPageProps {
-  jobs: JobPosting[];
-  candidates: Candidate[];
   onViewResults: (job: JobPosting) => void;
   onDeleteJob: (jobId: number) => Promise<void>;
   onNavigate: (page: PageKey) => void;
-  onEditJob: (job: JobPosting) => void; // <-- NOVA PROP
+  onEditJob: (job: JobPosting) => void;
 }
 
 const DashboardPage: React.FC<DashboardPageProps> = ({
-  jobs,
-  candidates,
   onViewResults,
   onDeleteJob,
   onNavigate,
-  onEditJob, // <-- NOVA PROP
+  onEditJob,
 }) => {
+  const { jobs, candidates } = useDataStore();
   const { stats } = useDashboardStats(jobs, candidates);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -35,6 +31,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
   const [isDeleting, setIsDeleting] = useState(false);
   
   const approvedCandidates = useMemo(() => {
+    if (!jobs || !candidates) return [];
     const activeJobIds = new Set(jobs.map(job => job.id));
     return candidates.filter(c =>
       c.score && c.score >= 90 &&
@@ -43,6 +40,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
   }, [jobs, candidates]);
 
   const filteredJobs = useMemo(() => {
+    if (!jobs || !candidates) return [];
     const jobsWithStats = jobs.map(job => {
         const jobCandidates = candidates.filter(c => c.vaga && c.vaga.some(v => v.id === job.id));
         const candidateCount = jobCandidates.length;
@@ -94,7 +92,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
           jobs={filteredJobs}
           onViewResults={onViewResults}
           onOpenDeleteModal={handleOpenDeleteModal}
-          onEditJob={onEditJob} // <-- PASSANDO A PROP ADIANTE
+          onEditJob={onEditJob}
           onNewScreening={() => onNavigate('new-screening')}
           searchTerm={searchTerm}
           setSearchTerm={setSearchTerm}
@@ -103,7 +101,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
       
       {isApprovedModalOpen && (
         <ApprovedCandidatesModal 
-          candidates={approvedCandidates}
+          candidates={approvedCandidates as Candidate[]}
           isLoading={false}
           onClose={() => setIsApprovedModalOpen(false)} 
         />
