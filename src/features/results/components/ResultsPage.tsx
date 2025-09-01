@@ -25,6 +25,7 @@ interface SortConfig {
 
 interface ResultsPageProps {
   selectedJob: JobPosting | null;
+  onDataSynced: () => void;
 }
 
 const ResultsPage: React.FC<ResultsPageProps> = ({ selectedJob }) => {
@@ -39,54 +40,43 @@ const ResultsPage: React.FC<ResultsPageProps> = ({ selectedJob }) => {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false); 
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'score', direction: 'descending' });
 
-  // --- LÓGICA E REFERÊNCIAS PARA SCROLL HORIZONTAL ---
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
-  // Função para verificar se é possível rolar para a esquerda ou direita
   const checkScrollability = useCallback(() => {
     const el = scrollContainerRef.current;
     if (el) {
-      // Verifica se o scrollLeft é maior que 0 (pode rolar para a esquerda)
       setCanScrollLeft(el.scrollLeft > 0);
-      // Verifica se a posição de scroll é menor que a largura total menos a largura visível
-      setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1); // -1 de tolerância
+      setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1);
     }
   }, []);
 
-  // Efeito para adicionar e remover "ouvintes" de eventos
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (el) {
-      // Verifica a scrollabilidade quando o componente é montado
       checkScrollability();
-      
-      // Adiciona ouvintes para re-verificar em caso de scroll, redimensionamento da janela, ou mudança no conteúdo
       el.addEventListener('scroll', checkScrollability);
       window.addEventListener('resize', checkScrollability);
       
       const observer = new MutationObserver(checkScrollability);
       observer.observe(el, { childList: true, subtree: true });
 
-      // Função de limpeza para remover os ouvintes quando o componente é desmontado
       return () => {
         el.removeEventListener('scroll', checkScrollability);
         window.removeEventListener('resize', checkScrollability);
         observer.disconnect();
       };
     }
-  }, [candidates, checkScrollability]); // Re-executa se os candidatos mudarem
+  }, [candidates, checkScrollability]);
 
-  // Função para executar o scroll
   const handleScroll = (direction: 'left' | 'right') => {
     const el = scrollContainerRef.current;
     if (el) {
-      const scrollAmount = direction === 'left' ? -400 : 400; // Rola 400 pixels
+      const scrollAmount = direction === 'left' ? -400 : 400;
       el.scrollBy({ left: scrollAmount, behavior: 'smooth' });
     }
   };
-  // --- FIM DA LÓGICA DE SCROLL ---
 
   const jobCandidates = useMemo(() => {
     if (!selectedJob) return [];
@@ -117,10 +107,15 @@ const ResultsPage: React.FC<ResultsPageProps> = ({ selectedJob }) => {
     setSortConfig({ key, direction });
   };
 
+  // --- OTIMIZAÇÃO APLICADA AQUI ---
   const handleUpdateCandidateStatus = useCallback(async (candidateId: number, newStatus: CandidateStatus) => {
     if (!profile) return;
+    
+    // 1. Faz a atualização visual (otimista) imediatamente.
+    updateCandidateStatusInStore(candidateId, newStatus);
+    
     try {
-      updateCandidateStatusInStore(candidateId, newStatus);
+      // 2. Envia a requisição para o backend.
       const response = await fetch(`${API_BASE_URL}/api/candidates/${candidateId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -130,11 +125,11 @@ const ResultsPage: React.FC<ResultsPageProps> = ({ selectedJob }) => {
       if (!response.ok) {
         throw new Error('Falha na atualização do status no servidor');
       }
+      // 3. Em caso de sucesso, não fazemos nada. A UI já está atualizada.
       
-      await fetchAllData(profile);
-
     } catch (error) {
       console.error('Erro ao atualizar status do candidato:', error);
+      // 4. Em caso de erro, buscamos todos os dados novamente para reverter a UI ao estado real.
       await fetchAllData(profile);
     }
   }, [profile, fetchAllData, updateCandidateStatusInStore]);
@@ -227,7 +222,6 @@ const ResultsPage: React.FC<ResultsPageProps> = ({ selectedJob }) => {
           </div>
         </div>
 
-        {/* CONTAINER COM BOTÕES DE SCROLL */}
         <div className="flex-1 mt-6 min-h-0 relative">
           {viewMode === 'kanban' && canScrollLeft && (
             <button 
@@ -283,7 +277,7 @@ const ResultsPage: React.FC<ResultsPageProps> = ({ selectedJob }) => {
         <ScheduleModal
           isOpen={isScheduleModalOpen}
           onClose={() => setIsScheduleModalOpen(false)}
-          onSubmit={handleScheduleSubmit}
+          onSchedule={handleScheduleSubmit}
           candidate={candidateToSchedule}
           job={selectedJob}
           isGoogleConnected={isGoogleConnected}
