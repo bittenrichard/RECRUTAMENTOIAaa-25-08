@@ -1,27 +1,28 @@
 import React from 'react';
-import { PageKey } from '../../types';
-import { Menu } from 'lucide-react'; // Ícone de menu
+import { useLocation } from 'react-router-dom';
+import { Menu } from 'lucide-react';
 
 interface HeaderProps {
-  currentPage: PageKey;
   onToggleMobileMenu: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ currentPage, onToggleMobileMenu }) => {
+const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu }) => {
+  const location = useLocation();
+
   const getPageTitle = () => {
-    switch (currentPage) {
-      case 'dashboard': return 'Dashboard';
-      case 'new-screening': return 'Nova Triagem';
-      case 'results': return 'Resultados da Triagem';
-      case 'database': return 'Banco de Talentos';
-      case 'settings': return 'Configurações';
-      default: return 'Recruta.AI';
-    }
+    const path = location.pathname;
+    if (path.startsWith('/dashboard')) return 'Dashboard';
+    if (path.startsWith('/nova-triagem')) return 'Nova Triagem';
+    if (path.includes('/resultados')) return 'Resultados da Triagem';
+    if (path.includes('/editar')) return 'Editar Vaga';
+    if (path.startsWith('/banco-de-talentos')) return 'Banco de Talentos';
+    if (path.startsWith('/agenda')) return 'Agenda';
+    if (path.startsWith('/configuracoes')) return 'Configurações';
+    return 'Recruta.AI';
   };
 
   return (
     <header className="flex items-center h-20 px-6 sm:px-10 bg-white shadow-sm flex-shrink-0 z-10">
-      {/* Botão do Menu Mobile */}
       <button 
         onClick={onToggleMobileMenu}
         className="md:hidden mr-4 text-gray-600 hover:text-indigo-600"

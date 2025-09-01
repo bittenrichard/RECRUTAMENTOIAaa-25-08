@@ -1,23 +1,16 @@
-// Local: src/shared/components/Layout/MainLayout.tsx
-
-import React, { useState } from 'react'; // LINHA CORRIGIDA
+import React, { useState } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
-import { PageKey } from '../../types';
 import { UserProfile } from '../../../features/auth/types';
 
 interface MainLayoutProps {
-  currentPage: PageKey;
   user: UserProfile | null;
-  onNavigate: (page: PageKey) => void;
   onLogout: () => void;
   children: React.ReactNode;
 }
 
 const MainLayout: React.FC<MainLayoutProps> = ({
-  currentPage,
   user,
-  onNavigate,
   onLogout,
   children
 }) => {
@@ -27,13 +20,9 @@ const MainLayout: React.FC<MainLayoutProps> = ({
   const toggleSidebar = () => setSidebarCollapsed(!isSidebarCollapsed);
   const toggleMobileMenu = () => setMobileMenuOpen(!isMobileMenuOpen);
 
-  const isFullHeightPage = currentPage === 'results' || currentPage === 'agenda' || currentPage === 'database';
-
   return (
     <div className="flex h-screen bg-gray-100 overflow-hidden">
       <Sidebar 
-        currentPage={currentPage}
-        onNavigate={onNavigate}
         onLogout={onLogout}
         user={user}
         isCollapsed={isSidebarCollapsed}
@@ -49,10 +38,9 @@ const MainLayout: React.FC<MainLayoutProps> = ({
           ></div>
         )}
         <Header 
-          currentPage={currentPage} 
           onToggleMobileMenu={toggleMobileMenu}
         />
-        <main className={`flex-grow p-6 sm:p-10 ${isFullHeightPage ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+        <main className="flex-grow p-6 sm:p-10 overflow-y-auto">
           {children}
         </main>
       </div>

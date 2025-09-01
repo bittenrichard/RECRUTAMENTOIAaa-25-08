@@ -18,19 +18,20 @@ import CandidateDatabasePage from './features/database/components/CandidateDatab
 import AgendaPage from './features/agenda/components/AgendaPage';
 import { PublicTestPage } from './features/behavioral/components';
 import ProtectedRoute from './shared/components/Layout/ProtectedRoute';
+import MainLayout from './shared/components/Layout/MainLayout';
 
 const LoadingSpinner: React.FC = () => (
-  <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
+  <div className="flex h-full flex-col items-center justify-center bg-gray-50">
     <div className="text-center">
       <Loader2 className="mx-auto h-12 w-12 text-indigo-600 animate-spin" />
-      <h2 className="mt-6 text-xl font-semibold text-gray-800">Carregando...</h2>
-      <p className="mt-2 text-gray-500">Estamos preparando tudo para você.</p>
+      <h2 className="mt-6 text-xl font-semibold text-gray-800">Carregando Dados...</h2>
+      <p className="mt-2 text-gray-500">Estamos buscando as informações mais recentes.</p>
     </div>
   </div>
 );
 
 function App() {
-  const { profile, isAuthenticated, isLoading: isAuthLoading } = useAuth();
+  const { profile, isAuthenticated, isLoading: isAuthLoading, signOut } = useAuth();
   const { isDataLoading, fetchAllData } = useDataStore();
   const navigate = useNavigate();
   const location = useLocation();
@@ -53,31 +54,40 @@ function App() {
     }
   }, [isAuthenticated, location.pathname, navigate]);
 
+  const handleLogout = () => {
+    signOut();
+    navigate('/login');
+  };
 
-  if (isAuthLoading) return <LoadingSpinner />;
+  if (isAuthLoading) {
+    return <LoadingSpinner />;
+  }
 
   return (
     <div className="font-inter antialiased">
       <DndProvider backend={HTML5Backend}>
         <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/signup" element={<SignUpPage />} />
+          <Route path="/login" element={!isAuthenticated ? <LoginPage /> : <Navigate to="/dashboard" />} />
+          <Route path="/signup" element={!isAuthenticated ? <SignUpPage /> : <Navigate to="/dashboard" />} />
           
           <Route element={<ProtectedRoute />}>
-            {isDataLoading && !profile ? <Route path="*" element={<LoadingSpinner />} /> : (
-              <>
-                <Route path="/dashboard" element={<DashboardPage />} />
-                <Route path="/nova-triagem" element={<NewScreeningPage />} />
-                <Route path="/vaga/:jobId/editar" element={<EditScreeningPage />} />
-                <Route path="/vaga/:jobId/resultados" element={<ResultsPage />} />
-                <Route path="/configuracoes" element={<SettingsPage />} />
-                <Route path="/banco-de-talentos" element={<CandidateDatabasePage />} />
-                <Route path="/agenda" element={<AgendaPage />} />
-              </>
-            )}
+            <Route path="/*" element={
+              <MainLayout user={profile} onLogout={handleLogout}>
+                {isDataLoading ? <LoadingSpinner /> : (
+                  <Routes>
+                    <Route path="/dashboard" element={<DashboardPage />} />
+                    <Route path="/nova-triagem" element={<NewScreeningPage />} />
+                    <Route path="/vaga/:jobId/editar" element={<EditScreeningPage />} />
+                    <Route path="/vaga/:jobId/resultados" element={<ResultsPage />} />
+                    <Route path="/configuracoes" element={<SettingsPage />} />
+                    <Route path="/banco-de-talentos" element={<CandidateDatabasePage />} />
+                    <Route path="/agenda" element={<AgendaPage />} />
+                    <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                  </Routes>
+                )}
+              </MainLayout>
+            } />
           </Route>
-          
-          <Route path="*" element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} />} />
         </Routes>
       </DndProvider>
     </div>
