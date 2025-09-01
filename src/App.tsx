@@ -1,23 +1,23 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
+import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { DndProvider } from 'react-dnd';
+import { HTML5Backend } from 'react-dnd-html5-backend';
+import { Loader2 } from 'lucide-react';
+
 import { useAuth } from './features/auth/hooks/useAuth';
-import { useNavigation } from './shared/hooks/useNavigation';
+import { useDataStore } from './shared/store/useDataStore';
+
 import LoginPage from './features/auth/components/LoginPage';
 import SignUpPage from './features/auth/components/SignUpPage';
-import MainLayout from './shared/components/Layout/MainLayout';
 import DashboardPage from './features/dashboard/components/DashboardPage';
 import NewScreeningPage from './features/screening/components/NewScreeningPage';
 import EditScreeningPage from './features/screening/components/EditScreeningPage';
 import ResultsPage from './features/results/components/ResultsPage';
 import SettingsPage from './features/settings/components/SettingsPage';
-import { LoginCredentials, SignUpCredentials } from './features/auth/types';
-import { JobPosting } from './features/screening/types';
-import { Loader2 } from 'lucide-react';
 import CandidateDatabasePage from './features/database/components/CandidateDatabasePage';
 import AgendaPage from './features/agenda/components/AgendaPage';
-import { useDataStore } from './shared/store/useDataStore';
-import { DndProvider } from 'react-dnd';
-import { HTML5Backend } from 'react-dnd-html5-backend';
 import { PublicTestPage } from './features/behavioral/components';
+import ProtectedRoute from './shared/components/Layout/ProtectedRoute';
 
 const LoadingSpinner: React.FC = () => (
   <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
@@ -30,12 +30,10 @@ const LoadingSpinner: React.FC = () => (
 );
 
 function App() {
-  const { profile, isAuthenticated, isLoading: isAuthLoading, error: authError, signIn, signOut, signUp } = useAuth();
-  const { currentPage, navigateTo } = useNavigation(isAuthenticated ? 'dashboard' : 'login');
-  
-  const { jobs, candidates, isDataLoading, fetchAllData, deleteJobById } = useDataStore();
-  
-  const [selectedJob, setSelectedJob] = useState<JobPosting | null>(null);
+  const { profile, isAuthenticated, isLoading: isAuthLoading } = useAuth();
+  const { isDataLoading, fetchAllData } = useDataStore();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const path = window.location.pathname;
   if (path.startsWith('/teste/')) {
@@ -48,47 +46,42 @@ function App() {
       fetchAllData(profile);
     }
   }, [isAuthenticated, profile, fetchAllData]);
-
-  const handleLogin = async (credentials: LoginCredentials) => { if (await signIn(credentials)) { navigateTo('dashboard'); } };
-  const handleSignUp = async (credentials: SignUpCredentials) => { const newUser = await signUp(credentials); if (newUser) { await handleLogin({ email: credentials.email, password: credentials.password }); } };
-  const handleLogout = () => { signOut(); navigateTo('login'); };
-  const handleViewResults = (job: JobPosting) => { setSelectedJob(job); navigateTo('results'); };
-  const handleEditJob = (job: JobPosting) => { setSelectedJob(job); navigateTo('edit-screening'); };
-  const handleJobCreated = (newJob: JobPosting) => { useDataStore.getState().addJob(newJob); setSelectedJob(newJob); navigateTo('results'); };
-  const handleJobUpdated = () => { fetchAllData(profile!); navigateTo('dashboard'); };
-  const handleDeleteJob = async (jobId: number) => { try { await deleteJobById(jobId); } catch (error) { console.error("Erro ao deletar vaga:", error); alert("Não foi possível excluir a vaga."); } };
   
-  if (isAuthLoading) return <LoadingSpinner />;
-  if (!isAuthenticated) {
-    return (
-      <div className="font-inter antialiased">
-        {currentPage === 'signup' ? <SignUpPage onSignUp={handleSignUp} onNavigateLogin={() => navigateTo('login')} isLoading={isAuthLoading} error={authError} /> : <LoginPage onLogin={handleLogin} onNavigateSignUp={() => navigateTo('signup')} isLoading={isAuthLoading} error={authError} />}
-      </div>
-    );
-  }
-  if (!profile || isDataLoading) return <LoadingSpinner />;
-
-  const renderContent = () => {
-    switch (currentPage) {
-      case 'dashboard': return <DashboardPage onViewResults={handleViewResults} onDeleteJob={handleDeleteJob} onNavigate={navigateTo} onEditJob={handleEditJob} />;
-      case 'new-screening': return <NewScreeningPage onJobCreated={handleJobCreated} onCancel={() => navigateTo('dashboard')} />;
-      case 'edit-screening':
-        if (!selectedJob) return <div>Vaga não encontrada!</div>;
-        return <EditScreeningPage jobToEdit={selectedJob} onJobUpdated={handleJobUpdated} onCancel={() => navigateTo('dashboard')} />;
-      case 'results': return <ResultsPage selectedJob={selectedJob} onDataSynced={() => fetchAllData(profile)} />;
-      case 'settings': return <SettingsPage />;
-      case 'database': return <CandidateDatabasePage />;
-      case 'agenda': return <AgendaPage />;
-      default: return <DashboardPage onViewResults={handleViewResults} onDeleteJob={handleDeleteJob} onNavigate={navigateTo} onEditJob={handleEditJob} />;
+  useEffect(() => {
+    if (isAuthenticated && (location.pathname === '/login' || location.pathname === '/signup' || location.pathname === '/')) {
+      navigate('/dashboard');
     }
-  };
+  }, [isAuthenticated, location.pathname, navigate]);
+
+
+  if (isAuthLoading) return <LoadingSpinner />;
 
   return (
     <div className="font-inter antialiased">
       <DndProvider backend={HTML5Backend}>
-        <MainLayout currentPage={currentPage} user={profile} onNavigate={navigateTo} onLogout={handleLogout}>{renderContent()}</MainLayout>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<SignUpPage />} />
+          
+          <Route element={<ProtectedRoute />}>
+            {isDataLoading && !profile ? <Route path="*" element={<LoadingSpinner />} /> : (
+              <>
+                <Route path="/dashboard" element={<DashboardPage />} />
+                <Route path="/nova-triagem" element={<NewScreeningPage />} />
+                <Route path="/vaga/:jobId/editar" element={<EditScreeningPage />} />
+                <Route path="/vaga/:jobId/resultados" element={<ResultsPage />} />
+                <Route path="/configuracoes" element={<SettingsPage />} />
+                <Route path="/banco-de-talentos" element={<CandidateDatabasePage />} />
+                <Route path="/agenda" element={<AgendaPage />} />
+              </>
+            )}
+          </Route>
+          
+          <Route path="*" element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} />} />
+        </Routes>
       </DndProvider>
     </div>
   );
 }
+
 export default App;

@@ -1,10 +1,9 @@
-// Caminho: src/features/auth/context/AuthContext.tsx
 import React, { createContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { AuthState, LoginCredentials, SignUpCredentials, UserProfile } from '../types';
 
 interface AuthContextType extends AuthState {
   error: string | null;
-  signUp: (credentials: SignUpCredentials) => Promise<UserProfile | null>;
+  signUp: (credentials: SignUpCredentials) => Promise<boolean>;
   signIn: (credentials: LoginCredentials) => Promise<boolean>;
   signOut: () => void;
   updateProfile: (newProfileData: Partial<UserProfile>) => void;
@@ -17,7 +16,6 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
-// Pega a URL base da API das variáveis de ambiente do Vite
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
@@ -61,7 +59,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       return;
     }
     try {
-      // Usa a URL completa
       const response = await fetch(`${API_BASE_URL}/api/users/${authState.profile.id}`);
       if (!response.ok) {
         throw new Error('Falha ao buscar perfil atualizado.');
@@ -75,31 +72,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   }, [authState.profile?.id]);
 
-  const signUp = async (credentials: SignUpCredentials): Promise<UserProfile | null> => {
+  const signUp = async (credentials: SignUpCredentials): Promise<boolean> => {
     setAuthError(null);
     setAuthState(prev => ({ ...prev, isLoading: true }));
     try {
-      // Usa a URL completa
       const response = await fetch(`${API_BASE_URL}/api/auth/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(credentials),
       });
-
       const data = await response.json();
-
       if (!response.ok) {
         throw new Error(data.error || 'Erro ao cadastrar. Tente novamente.');
       }
-      
-      const userProfile: UserProfile = data.user;
-      setAuthState(prev => ({ ...prev, isLoading: false }));
-      return userProfile;
-
+      return await signIn({ email: credentials.email, password: credentials.password });
     } catch (error: any) {
       setAuthError(error.message || 'Ocorreu um erro ao cadastrar. Tente novamente.');
       setAuthState(prev => ({ ...prev, isLoading: false }));
-      return null;
+      return false;
     }
   };
 
@@ -107,24 +97,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setAuthError(null);
     setAuthState(prev => ({ ...prev, isLoading: true }));
     try {
-      // Usa a URL completa
       const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(credentials),
       });
-
       const data = await response.json();
-
       if (!response.ok) {
         throw new Error(data.error || 'Falha no login. Verifique suas credenciais.');
       }
-      
       const userProfile: UserProfile = data.user;
       localStorage.setItem('userProfile', JSON.stringify(userProfile));
       setAuthState({ profile: userProfile, isAuthenticated: true, isLoading: false });
       return true;
-
     } catch (error: any) {
       setAuthError(error.message || 'Ocorreu um erro ao fazer login. Tente novamente.');
       setAuthState(prev => ({ ...prev, isLoading: false }));

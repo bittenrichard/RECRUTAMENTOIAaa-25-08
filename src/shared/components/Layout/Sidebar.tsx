@@ -1,13 +1,11 @@
 import React from 'react';
-import { LayoutDashboard, PlusCircle, Settings, LogOut, ChevronsLeft, ChevronsRight, Database, Calendar, ClipboardList } from 'lucide-react';
-import { PageKey } from '../../types';
+import { NavLink } from 'react-router-dom';
+import { LayoutDashboard, PlusCircle, Settings, LogOut, ChevronsLeft, ChevronsRight, Database, Calendar } from 'lucide-react';
 import { UserProfile } from '../../../features/auth/types';
 
 interface SidebarProps {
-  currentPage: PageKey;
-  onNavigate: (page: PageKey) => void;
-  onLogout: () => void;
   user: UserProfile | null;
+  onLogout: () => void;
   isCollapsed: boolean;
   onToggle: () => void;
   isMobileOpen: boolean;
@@ -20,21 +18,15 @@ const getAvatarFallback = (name: string | null) => {
 };
 
 const Sidebar: React.FC<SidebarProps> = ({
-  currentPage, onNavigate, onLogout, user, isCollapsed, onToggle, isMobileOpen, onCloseMobile
+  user, onLogout, isCollapsed, onToggle, isMobileOpen, onCloseMobile
 }) => {
   const menuItems = [
-    { key: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
-    { key: 'new-screening' as const, label: 'Nova Triagem', icon: PlusCircle },
-    { key: 'database' as const, label: 'Banco de Talentos', icon: Database },
-    { key: 'agenda' as const, label: 'Agenda', icon: Calendar },
-    // { key: 'behavioral-test' as const, label: 'Teste Comportamental', icon: ClipboardList }, // <-- ITEM REMOVIDO
-    { key: 'settings' as const, label: 'Configurações', icon: Settings }
+    { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { to: '/nova-triagem', label: 'Nova Triagem', icon: PlusCircle },
+    { to: '/banco-de-talentos', label: 'Banco de Talentos', icon: Database },
+    { to: '/agenda', label: 'Agenda', icon: Calendar },
+    { to: '/configuracoes', label: 'Configurações', icon: Settings }
   ];
-
-  const handleNavigate = (page: PageKey) => {
-    onNavigate(page);
-    onCloseMobile();
-  };
 
   return (
     <div className={`
@@ -57,17 +49,18 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       <nav className="flex-grow p-4 space-y-2">
         {menuItems.map((item) => (
-          <button
-            key={item.key}
-            onClick={() => handleNavigate(item.key)}
-            className={`flex items-center w-full p-3 rounded-lg font-medium transition-all duration-200 ${
-              currentPage === item.key ? 'text-white bg-indigo-600 shadow-md' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+          <NavLink
+            key={item.to}
+            to={item.to}
+            onClick={onCloseMobile}
+            className={({ isActive }) => `flex items-center w-full p-3 rounded-lg font-medium transition-all duration-200 ${
+              isActive ? 'text-white bg-indigo-600 shadow-md' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
             } ${isCollapsed ? 'justify-center' : ''}`}
             title={item.label}
           >
             <item.icon className={isCollapsed ? '' : 'mr-3'} size={20} />
             {!isCollapsed && <span className="whitespace-nowrap truncate">{item.label}</span>}
-          </button>
+          </NavLink>
         ))}
       </nav>
 

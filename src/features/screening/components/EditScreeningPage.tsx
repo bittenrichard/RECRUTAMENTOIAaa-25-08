@@ -1,63 +1,41 @@
-// Local: src/features/screening/components/EditScreeningPage.tsx
-
-import React, { useEffect } from 'react';
+import React from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useDataStore } from '../../../shared/store/useDataStore';
 import JobForm from './JobForm';
-import { useJobForm } from '../hooks/useJobForm';
-import { JobPosting } from '../types';
+import { JobPosting, JobFormData } from '../types';
 
-interface EditScreeningPageProps {
-  jobToEdit: JobPosting;
-  onJobUpdated: () => void;
-  onCancel: () => void;
-}
+const EditScreeningPage: React.FC = () => {
+    const navigate = useNavigate();
+    const { jobId } = useParams<{ jobId: string }>();
+    const { jobs, updateJob } = useDataStore();
 
-const EditScreeningPage: React.FC<EditScreeningPageProps> = ({
-  jobToEdit,
-  onJobUpdated,
-  onCancel
-}) => {
-  // Passamos os dados iniciais para o nosso hook do formulário
-  const { formData, isSubmitting, error, updateField, setInitialData, updateJob } = useJobForm();
+    const jobToEdit = jobs.find(job => job.id === Number(jobId));
 
-  // Quando o componente for montado, preenchemos o formulário com os dados da vaga
-  useEffect(() => {
-    if (jobToEdit) {
-      setInitialData({
-        jobTitle: jobToEdit.titulo,
-        jobDescription: jobToEdit.descricao,
-        requiredSkills: jobToEdit.requisitos_obrigatorios,
-        desiredSkills: jobToEdit.requisitos_desejaveis,
-      });
+    const handleJobUpdated = async (updatedData: JobFormData) => {
+        if (!jobToEdit) return;
+        try {
+            await updateJob(jobToEdit.id, updatedData);
+            navigate('/dashboard');
+        } catch (error) {
+            console.error("Erro ao atualizar vaga:", error);
+            alert("Não foi possível atualizar a vaga.");
+        }
+    };
+    
+    if (!jobToEdit) {
+        return <div>Vaga não encontrada ou não pertence a você.</div>;
     }
-  }, [jobToEdit, setInitialData]);
 
-  const handleSubmit = async () => {
-    const success = await updateJob(jobToEdit.id);
-    if (success) {
-      onJobUpdated();
-    }
-  };
-
-  return (
-    <div className="fade-in">
-      <div className="bg-white p-8 rounded-lg shadow-sm max-w-4xl mx-auto">
-        <h3 className="text-2xl font-semibold mb-6">Editar Triagem de Vaga</h3>
-        {error && (
-            <div className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-md text-sm" role="alert">
-                <p>{error}</p>
-            </div>
-        )}
-        <JobForm
-          formData={formData}
-          onFieldChange={updateField}
-          onSubmit={handleSubmit}
-          onCancel={onCancel}
-          isSubmitting={isSubmitting}
-          submitButtonText="Salvar Alterações" // Texto do botão personalizado
-        />
-      </div>
-    </div>
-  );
+    return (
+        <div className="max-w-4xl mx-auto p-6">
+            <h1 className="text-3xl font-bold text-gray-800 mb-6">Editar Vaga</h1>
+            <JobForm
+                onFormSubmit={handleJobUpdated}
+                onCancel={() => navigate('/dashboard')}
+                initialData={jobToEdit as JobPosting}
+            />
+        </div>
+    );
 };
 
 export default EditScreeningPage;

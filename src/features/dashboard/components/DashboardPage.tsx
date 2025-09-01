@@ -1,28 +1,17 @@
 import React, { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import StatCard from './StatCard';
 import RecentScreenings from './RecentScreenings';
 import { useDashboardStats } from '../hooks/useDashboardStats';
 import { JobPosting } from '../../screening/types';
-import { PageKey } from '../../../shared/types';
 import ApprovedCandidatesModal from './ApprovedCandidatesModal';
 import { Candidate } from '../../../shared/types';
 import DeleteJobModal from './DeleteJobModal';
 import { useDataStore } from '../../../shared/store/useDataStore';
 
-interface DashboardPageProps {
-  onViewResults: (job: JobPosting) => void;
-  onDeleteJob: (jobId: number) => Promise<void>;
-  onNavigate: (page: PageKey) => void;
-  onEditJob: (job: JobPosting) => void;
-}
-
-const DashboardPage: React.FC<DashboardPageProps> = ({
-  onViewResults,
-  onDeleteJob,
-  onNavigate,
-  onEditJob,
-}) => {
-  const { jobs, candidates } = useDataStore();
+const DashboardPage: React.FC = () => {
+  const navigate = useNavigate();
+  const { jobs, candidates, deleteJobById } = useDataStore();
   const { stats } = useDashboardStats(jobs, candidates);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -65,18 +54,13 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
     { title: 'Aprovados (>90%)', value: stats.approvedCandidates, iconName: 'award', iconColor: 'text-amber-600', iconBg: 'bg-amber-100', onClick: () => setIsApprovedModalOpen(true) }
   ];
 
-  const handleOpenDeleteModal = (job: JobPosting) => {
-    setJobToDelete(job);
-  };
-
-  const handleCloseDeleteModal = () => {
-    setJobToDelete(null);
-  };
+  const handleOpenDeleteModal = (job: JobPosting) => setJobToDelete(job);
+  const handleCloseDeleteModal = () => setJobToDelete(null);
 
   const handleConfirmDelete = async () => {
     if (jobToDelete) {
       setIsDeleting(true);
-      await onDeleteJob(jobToDelete.id);
+      await deleteJobById(jobToDelete.id);
       setIsDeleting(false);
       setJobToDelete(null);
     }
@@ -90,10 +74,10 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
         </div>
         <RecentScreenings
           jobs={filteredJobs}
-          onViewResults={onViewResults}
+          onViewResults={(job) => navigate(`/vaga/${job.id}/resultados`)}
           onOpenDeleteModal={handleOpenDeleteModal}
-          onEditJob={onEditJob}
-          onNewScreening={() => onNavigate('new-screening')}
+          onEditJob={(job) => navigate(`/vaga/${job.id}/editar`)}
+          onNewScreening={() => navigate('/nova-triagem')}
           searchTerm={searchTerm}
           setSearchTerm={setSearchTerm}
         />
