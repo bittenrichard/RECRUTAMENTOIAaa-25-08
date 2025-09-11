@@ -1,7 +1,7 @@
 // Caminho: src/shared/store/useDataStore.ts
 import { create } from 'zustand';
 import { JobPosting } from '../../features/screening/types';
-import { Candidate } from '../../shared/types';
+import { Candidate, CandidateStatus } from '../../shared/types/index';
 import { UserProfile } from '../../features/auth/types';
 
 interface DataState {
@@ -13,7 +13,7 @@ interface DataState {
   addJob: (job: JobPosting) => void;
   updateJobInStore: (updatedJob: JobPosting) => void;
   deleteJobById: (jobId: number) => Promise<void>;
-  updateCandidateStatusInStore: (candidateId: number, newStatus: 'Triagem' | 'Entrevista' | 'Aprovado' | 'Reprovado') => void;
+  updateCandidateStatusInStore: (candidateId: number, newStatus: CandidateStatus) => void;
 }
 
 // Pega a URL base da API das variáveis de ambiente do Vite
@@ -73,7 +73,7 @@ export const useDataStore = create<DataState>((set) => ({
     }
   },
 
-  updateCandidateStatusInStore: (candidateId: number, newStatus: 'Triagem' | 'Entrevista' | 'Aprovado' | 'Reprovado') => {
+  updateCandidateStatusInStore: (candidateId: number, newStatus: CandidateStatus) => {
     set((state) => ({
       candidates: state.candidates.map(c => 
         c.id === candidateId ? { ...c, status: { id: 0, value: newStatus } } : c

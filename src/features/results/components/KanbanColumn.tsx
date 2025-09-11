@@ -1,9 +1,6 @@
-// Caminho: src/features/results/components/KanbanColumn.tsx
-// SUBSTITUA O CONTEÚDO INTEIRO DESTE ARQUIVO
-
 import React from 'react';
 import { useDrop } from 'react-dnd';
-import { Candidate, CandidateStatus } from '../../../shared/types';
+import { Candidate, CandidateStatus } from '../../../shared/types/index';
 import CandidateCard from './CandidateCard';
 
 interface KanbanColumnProps {
@@ -13,9 +10,10 @@ interface KanbanColumnProps {
   onViewDetails: (candidate: Candidate) => void;
   onScheduleInterview: (candidate: Candidate) => void;
   onUpdateStatus: (candidateId: number, newStatus: CandidateStatus) => void;
+  onUpdateLastContact?: (candidateId: number) => void;
 }
 
-const KanbanColumn: React.FC<KanbanColumnProps> = ({ columnId, title, candidates, onViewDetails, onScheduleInterview, onUpdateStatus }) => {
+const KanbanColumn: React.FC<KanbanColumnProps> = ({ columnId, title, candidates, onViewDetails, onScheduleInterview, onUpdateStatus, onUpdateLastContact }) => {
     
   const [{ isOver }, drop] = useDrop(() => ({
     accept: 'candidateCard',
@@ -26,12 +24,9 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({ columnId, title, candidates
   }));
     
   return (
-    // --- CORREÇÃO APLICADA AQUI ---
-    // 1. Trocamos 'min-h-full' por 'h-full' para garantir que a coluna ocupe toda a altura disponível.
-    <div className="bg-gray-100 rounded-lg p-4 w-full md:w-80 lg:w-96 flex-shrink-0 flex flex-col h-full shadow-md border">
+    <div className="bg-gray-100 rounded-lg p-4 w-80 flex-shrink-0 flex flex-col h-full shadow-md border snap-start">
       <h3 className="font-bold text-gray-800 mb-4 px-2 flex-shrink-0">{title} ({candidates.length})</h3>
       
-      {/* 2. Este contêiner agora cresce para preencher o espaço e permite a rolagem vertical */}
       <div 
         ref={drop}
         className={`flex-grow min-h-0 overflow-y-auto hide-scrollbar p-2 rounded-md transition-colors duration-200 border-2 border-dashed
@@ -44,6 +39,7 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({ columnId, title, candidates
             candidate={candidate}
             onViewDetails={onViewDetails}
             onScheduleInterview={onScheduleInterview}
+            onUpdateLastContact={onUpdateLastContact}
           />
         ))}
       </div>

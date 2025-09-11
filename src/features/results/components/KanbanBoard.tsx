@@ -1,8 +1,5 @@
-// Caminho: src/features/results/components/KanbanBoard.tsx
-// SUBSTITUA O CONTEÚDO INTEIRO DESTE ARQUIVO
-
 import React, { forwardRef } from 'react';
-import { Candidate, CandidateStatus } from '../../../shared/types';
+import { Candidate, CandidateStatus } from '../../../shared/types/index';
 import KanbanColumn from './KanbanColumn';
 
 interface KanbanBoardProps {
@@ -10,47 +7,46 @@ interface KanbanBoardProps {
   onUpdateStatus: (candidateId: number, newStatus: CandidateStatus) => void;
   onViewDetails: (candidate: Candidate) => void;
   onScheduleInterview: (candidate: Candidate) => void;
+  onUpdateLastContact?: (candidateId: number) => void;
 }
 
-const columnsOrder: { id: CandidateStatus; title: string }[] = [
-  { id: 'Triagem', title: 'Triagem' },
-  { id: 'Entrevista por Vídeo', title: 'Entrevista por Vídeo' },
-  { id: 'Teste Teórico', title: 'Teste Teórico' },
-  { id: 'Teste Prático', title: 'Teste Prático' },
-  { id: 'Contratado', title: 'Contratado' },
-  { id: 'Reprovado', title: 'Reprovado' },
-];
-
-// --- ALTERAÇÃO APLICADA AQUI ---
-// Envolvemos o componente com forwardRef para receber a ref do componente pai.
 const KanbanBoard = forwardRef<HTMLDivElement, KanbanBoardProps>(
-  ({ candidates, onUpdateStatus, onViewDetails, onScheduleInterview }, ref) => {
+  ({ candidates, onUpdateStatus, onViewDetails, onScheduleInterview, onUpdateLastContact }, ref) => {
     
-  const candidatesByColumn = columnsOrder.reduce((acc, col) => {
-    const filterFn = (c: Candidate) => (col.id === 'Triagem')
-      ? (!c.status || c.status.value === 'Triagem')
-      : c.status?.value === col.id;
-      
-    acc[col.id] = candidates.filter(filterFn);
-    return acc;
-  }, {} as Record<CandidateStatus, Candidate[]>);
+    const columnsOrder: CandidateStatus[] = [
+      'Triagem',
+      'Entrevista por Vídeo',
+      'Teste Teórico',
+      'Teste Prático',
+      'Contratado',
+      'Reprovado'
+    ];
+    
+    const columns = columnsOrder.reduce((acc, stage) => {
+      acc[stage] = candidates.filter(c => c.status?.value === stage || (stage === 'Triagem' && !c.status));
+      return acc;
+    }, {} as { [key: string]: Candidate[] });
 
-  return (
-    // Atribuímos a ref ao div que tem o scroll horizontal.
-    <div ref={ref} className="flex gap-6 pb-2 overflow-x-auto h-full flex-grow hide-scrollbar">
-      {columnsOrder.map((col) => (
-        <KanbanColumn 
-          key={col.id}
-          columnId={col.id} 
-          title={col.title} 
-          candidates={candidatesByColumn[col.id] || []} 
-          onViewDetails={onViewDetails} 
-          onScheduleInterview={onScheduleInterview} 
-          onUpdateStatus={onUpdateStatus}
-        />
-      ))}
-    </div>
-  );
-});
+    return (
+      <div 
+        ref={ref} 
+        className="flex gap-6 pb-4 overflow-x-auto h-full flex-grow hide-scrollbar snap-x snap-mandatory"
+      >
+        {columnsOrder.map((col) => (
+          <KanbanColumn
+            key={col}
+            columnId={col}
+            title={col}
+            candidates={columns[col]}
+            onViewDetails={onViewDetails}
+            onScheduleInterview={onScheduleInterview}
+            onUpdateStatus={onUpdateStatus}
+            onUpdateLastContact={onUpdateLastContact}
+          />
+        ))}
+      </div>
+    );
+  }
+);
 
 export default KanbanBoard;

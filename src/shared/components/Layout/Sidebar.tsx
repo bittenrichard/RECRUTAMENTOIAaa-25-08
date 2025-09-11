@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, PlusCircle, Settings, LogOut, ChevronsLeft, ChevronsRight, Database, Calendar } from 'lucide-react';
 import { UserProfile } from '../../../features/auth/types';
 
@@ -20,6 +20,8 @@ const getAvatarFallback = (name: string | null) => {
 const Sidebar: React.FC<SidebarProps> = ({
   user, onLogout, isCollapsed, onToggle, isMobileOpen, onCloseMobile
 }) => {
+  const navigate = useNavigate();
+
   const menuItems = [
     { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { to: '/nova-triagem', label: 'Nova Triagem', icon: PlusCircle },
@@ -28,12 +30,17 @@ const Sidebar: React.FC<SidebarProps> = ({
     { to: '/configuracoes', label: 'Configurações', icon: Settings }
   ];
 
+  const handleLogoutClick = () => {
+    onLogout();
+    navigate('/login');
+  };
+
   return (
     <div className={`
       fixed inset-y-0 left-0 z-30 flex flex-col bg-white
       transform transition-transform duration-300 ease-in-out
       ${isMobileOpen ? 'translate-x-0 shadow-xl' : '-translate-x-full'}
-      md:relative md:translate-x-0 md:shadow-none md:rounded-r-xl
+      md:relative md:translate-x-0 md:shadow-none
       ${isCollapsed ? 'w-20' : 'w-64'}
     `}>
       
@@ -80,7 +87,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         <button
-          onClick={onLogout}
+          onClick={handleLogoutClick}
           className={`flex items-center w-full p-3 mt-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900 rounded-lg font-medium transition-colors ${isCollapsed ? 'justify-center' : ''}`}
           title="Sair"
         >

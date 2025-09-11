@@ -410,6 +410,32 @@ app.post('/api/candidates/:candidateId/theoretical-test', upload.single('testRes
     }
 });
 
+// 4. NOVA ROTA - Atualização Manual da Última Data de Contato
+app.patch('/api/candidates/:candidateId/update-contact', async (req: Request, res: Response) => {
+    const { candidateId } = req.params;
+    const { userId } = req.body;
+
+    if (!userId) {
+        return res.status(400).json({ error: 'ID do usuário é obrigatório.' });
+    }
+
+    try {
+        // Atualiza o campo ultima_atualizacao com a data atual
+        const updatedCandidate = await baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), {
+            ultima_atualizacao: new Date().toISOString(),
+        });
+
+        res.status(200).json({
+            message: 'Data de contato atualizada com sucesso!',
+            candidate: updatedCandidate
+        });
+
+    } catch (error: any) {
+        console.error('Erro ao atualizar data de contato:', error.message);
+        res.status(500).json({ error: 'Falha ao atualizar data de contato.' });
+    }
+});
+
 
 // ==================================================================
 // === FIM DAS NOVAS FUNCIONALIDADES (FASE 1) =========================

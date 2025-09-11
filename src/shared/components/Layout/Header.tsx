@@ -23,6 +23,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu }) => {
 
   return (
     <header className="flex items-center h-20 px-6 sm:px-10 bg-white shadow-sm flex-shrink-0 z-10">
+      {/* Este botão só aparece em telas menores que 'md' (768px) */}
       <button 
         onClick={onToggleMobileMenu}
         className="md:hidden mr-4 text-gray-600 hover:text-indigo-600"

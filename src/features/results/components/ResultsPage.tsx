@@ -3,13 +3,14 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { LayoutGrid, List, UploadCloud, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
 import CandidateTable from './CandidateTable';
 import KanbanBoard from './KanbanBoard';
-import { Candidate, CandidateStatus } from '../../../shared/types';
+import { Candidate, CandidateStatus } from '../../../shared/types/index';
 import { useAuth } from '../../auth/hooks/useAuth';
 import CandidateDetailModal from './CandidateDetailModal';
 import ScheduleModal from '../../agenda/components/ScheduleModal';
 import { useGoogleAuth } from '../../../shared/hooks/useGoogleAuth';
 import { useDataStore } from '../../../shared/store/useDataStore';
 import UploadModal from './UploadModal';
+import VideoUploadModal from './VideoUploadModal';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -32,6 +33,8 @@ const ResultsPage: React.FC = () => {
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [candidateToSchedule, setCandidateToSchedule] = useState<Candidate | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false); 
+  const [isVideoUploadModalOpen, setIsVideoUploadModalOpen] = useState(false);
+  const [candidateForVideo, setCandidateForVideo] = useState<Candidate | null>(null);
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'score', direction: 'descending' });
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -118,7 +121,7 @@ const ResultsPage: React.FC = () => {
       
     } catch (error) {
       console.error('Erro ao atualizar status do candidato:', error);
-      await fetchAllData(profile);
+      if(profile) await fetchAllData(profile);
     }
   }, [profile, fetchAllData, updateCandidateStatusInStore]);
   
@@ -160,6 +163,35 @@ const ResultsPage: React.FC = () => {
     setCandidateToSchedule(candidate);
     setIsScheduleModalOpen(true);
   };
+
+  const handleUpdateLastContact = async (candidateId: number) => {
+    if (!profile) return;
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/candidates/${candidateId}/update-contact`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: profile.id }),
+      });
+
+      if (!response.ok) throw new Error('Falha na atualização da data de contato');
+      
+      // Atualizar os dados para refletir a mudança
+      await fetchAllData(profile);
+      
+    } catch (error) {
+      console.error('Erro ao atualizar data de contato:', error);
+      alert('Erro ao atualizar data de contato');
+    }
+  };
+
+  const handleVideoUploaded = async () => {
+    if (profile) {
+      await fetchAllData(profile);
+    }
+    setIsVideoUploadModalOpen(false);
+    setCandidateForVideo(null);
+  };
   
   if (!selectedJob) {
     return (
@@ -176,40 +208,51 @@ const ResultsPage: React.FC = () => {
 
   return (
     <>
-      <div className="fade-in h-full flex flex-col p-6 bg-gray-50">
-        <div className="flex-shrink-0">
-          <div className="flex justify-between items-center">
-            <div>
-              <h3 className="text-2xl font-semibold text-gray-800">Resultados: {selectedJob.titulo}</h3>
-              <p className="text-gray-600">Arraste e solte os candidatos para gerenciar o fluxo.</p>
-            </div>
-            <div className="flex items-center gap-4">
-              <button onClick={() => setIsUploadModalOpen(true)} className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-md bg-indigo-600 text-white hover:bg-indigo-700">
-                <UploadCloud size={16} /> Fazer Upload de Currículos
-              </button>
-              <div className="flex items-center bg-white border p-1 rounded-lg">
-                <button onClick={() => setViewMode('table')} className={`p-2 rounded-md ${viewMode === 'table' ? 'bg-indigo-100 text-indigo-600' : 'text-gray-500 hover:bg-gray-100'}`}><List size={20} /></button>
-                <button onClick={() => setViewMode('kanban')} className={`p-2 rounded-md ${viewMode === 'kanban' ? 'bg-indigo-100 text-indigo-600' : 'text-gray-500 hover:bg-gray-100'}`}><LayoutGrid size={20} /></button>
-              </div>
+      <div className="fade-in h-full flex flex-col">
+        <div className="flex-shrink-0 space-y-4">
+          <div>
+            <h3 className="text-2xl font-semibold text-gray-800">Resultados: {selectedJob.titulo}</h3>
+            <p className="text-gray-600 mt-1">Gerencie os candidatos da sua vaga.</p>
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <button onClick={() => setIsUploadModalOpen(true)} className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md bg-indigo-600 text-white hover:bg-indigo-700">
+              <UploadCloud size={16} /> Fazer Upload
+            </button>
+            <div className="w-full sm:w-auto flex items-center bg-white border p-1 rounded-lg">
+              <button onClick={() => setViewMode('table')} className={`w-1/2 sm:w-auto p-2 rounded-md ${viewMode === 'table' ? 'bg-indigo-100 text-indigo-600' : 'text-gray-500 hover:bg-gray-100'}`}><List size={20} className="mx-auto" /></button>
+              <button onClick={() => setViewMode('kanban')} className={`w-1/2 sm:w-auto p-2 rounded-md ${viewMode === 'kanban' ? 'bg-indigo-100 text-indigo-600' : 'text-gray-500 hover:bg-gray-100'}`}><LayoutGrid size={20} className="mx-auto" /></button>
             </div>
           </div>
         </div>
 
         <div className="flex-1 mt-6 min-h-0 relative">
           {viewMode === 'kanban' && canScrollLeft && (
-            <button onClick={() => handleScroll('left')} className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-white p-2 rounded-full shadow-lg border hover:bg-gray-100" aria-label="Rolar para a esquerda"><ChevronLeft size={24} /></button>
+            <button onClick={() => handleScroll('left')} className="hidden md:block absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-white p-2 rounded-full shadow-lg border hover:bg-gray-100" aria-label="Rolar para a esquerda"><ChevronLeft size={24} /></button>
           )}
 
           {viewMode === 'table' ? (
               <div className="bg-white rounded-lg shadow overflow-auto h-full">
-                <CandidateTable candidates={jobCandidates} onViewDetails={handleViewDetails} requestSort={handleRequestSort} sortConfig={sortConfig}/>
+                <CandidateTable 
+                  candidates={jobCandidates} 
+                  onViewDetails={handleViewDetails} 
+                  requestSort={handleRequestSort} 
+                  sortConfig={sortConfig}
+                  onUpdateLastContact={handleUpdateLastContact}
+                />
               </div>
           ) : (
-            <KanbanBoard ref={scrollContainerRef} candidates={jobCandidates} onUpdateStatus={handleUpdateCandidateStatus} onViewDetails={handleViewDetails} onScheduleInterview={handleOpenScheduleModal} />
+            <KanbanBoard 
+              ref={scrollContainerRef} 
+              candidates={jobCandidates} 
+              onUpdateStatus={handleUpdateCandidateStatus} 
+              onViewDetails={handleViewDetails} 
+              onScheduleInterview={handleOpenScheduleModal}
+              onUpdateLastContact={handleUpdateLastContact}
+            />
           )}
 
           {viewMode === 'kanban' && canScrollRight && (
-            <button onClick={() => handleScroll('right')} className="absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-white p-2 rounded-full shadow-lg border hover:bg-gray-100" aria-label="Rolar para a direita"><ChevronRight size={24} /></button>
+            <button onClick={() => handleScroll('right')} className="hidden md:block absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-white p-2 rounded-full shadow-lg border hover:bg-gray-100" aria-label="Rolar para a direita"><ChevronRight size={24} /></button>
           )}
         </div>
       </div>
@@ -235,6 +278,14 @@ const ResultsPage: React.FC = () => {
       )}
       {isUploadModalOpen && (
         <UploadModal isOpen={isUploadModalOpen} onClose={() => setIsUploadModalOpen(false)} selectedJob={selectedJob} />
+      )}
+      {isVideoUploadModalOpen && candidateForVideo && (
+        <VideoUploadModal
+          isOpen={isVideoUploadModalOpen}
+          onClose={() => setIsVideoUploadModalOpen(false)}
+          candidate={candidateForVideo}
+          onVideoUploaded={handleVideoUploaded}
+        />
       )}
     </>
   );

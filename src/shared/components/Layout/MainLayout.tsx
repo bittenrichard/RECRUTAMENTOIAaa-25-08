@@ -40,7 +40,9 @@ const MainLayout: React.FC<MainLayoutProps> = ({
         <Header 
           onToggleMobileMenu={toggleMobileMenu}
         />
-        <main className="flex-grow p-6 sm:p-10 overflow-y-auto">
+        {/* --- ALTERAÇÃO APLICADA AQUI --- */}
+        {/* Adicionamos padding responsivo ao container principal do conteúdo */}
+        <main className="flex-grow overflow-y-auto p-4 sm:p-6 lg:p-8">
           {children}
         </main>
       </div>

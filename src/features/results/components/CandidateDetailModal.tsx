@@ -1,23 +1,15 @@
-// Caminho: src/features/results/components/CandidateDetailModal.tsx
-// SUBSTITUA O CONTEÚDO INTEIRO DESTE ARQUIVO
-
 import React, { useState, useRef } from 'react';
-// --- CORREÇÃO APLICADA AQUI: Adicionado 'MessageCircle' à importação ---
-import { X, User, Star, Briefcase, FileText, Download, CalendarPlus, ChevronDown, RefreshCcw, Mail, Copy, Check, BrainCircuit, UploadCloud, Video, FileInput, Loader2, ClipboardList, MessageCircle } from 'lucide-react';
-import { Candidate, CandidateStatus } from '../../../shared/types';
+import { X, User, Star, Briefcase, FileText, Download, CalendarPlus, ChevronDown, RefreshCcw, Mail, Copy, Check, BrainCircuit, UploadCloud, Video, Loader2, ClipboardList, MessageCircle, CheckCircle, AlertCircle, Play } from 'lucide-react';
+import { Candidate, CandidateStatus } from '../../../shared/types/index';
 import { useAuth } from '../../auth/hooks/useAuth';
 import ProfileChart from '../../behavioral/components/ProfileChart';
-import { formatPhoneNumberForWhatsApp } from '../../../shared/utils/formatters';
-
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 interface CandidateDetailModalProps {
   candidate: Candidate | null;
   onClose: () => void;
   onScheduleInterview: (candidate: Candidate) => void;
   onUpdateStatus: (candidateId: number, newStatus: CandidateStatus) => void;
-  onDataSynced: () => void; // Para forçar a atualização dos dados
+  onDataSynced: () => void;
 }
 
 const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, onClose, onScheduleInterview, onUpdateStatus, onDataSynced }) => {
@@ -30,7 +22,6 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   const videoInputRef = useRef<HTMLInputElement>(null);
-  const testInputRef = useRef<HTMLInputElement>(null);
 
   if (!candidate) return null;
 
@@ -40,8 +31,8 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
     setUploadError(null);
 
     const endpoint = type === 'video' 
-      ? `${API_BASE_URL}/api/candidates/${candidate.id}/video-interview`
-      : `${API_BASE_URL}/api/candidates/${candidate.id}/theoretical-test`;
+      ? `/api/candidates/${candidate.id}/video-interview`
+      : `/api/candidates/${candidate.id}/theoretical-test`;
 
     const formData = new FormData();
     formData.append(type === 'video' ? 'video' : 'testResult', file);
@@ -54,9 +45,9 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
       }
       alert(`Upload de ${type === 'video' ? 'vídeo' : 'teste'} realizado com sucesso!`);
       onDataSynced(); 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(`Erro no upload do ${type}:`, error);
-      setUploadError(error.message);
+      setUploadError(error instanceof Error ? error.message : 'Erro desconhecido');
     } finally {
       setIsUploading(null);
     }
@@ -64,9 +55,6 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
 
   const handleVideoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) handleFileUpload(e.target.files[0], 'video');
-  };
-  const handleTestFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files?.[0]) handleFileUpload(e.target.files[0], 'test');
   };
 
   const handleStatusChange = (newStatus: CandidateStatus) => {
@@ -78,7 +66,7 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
     if (!profile || !candidate) return;
     setIsGeneratingLink(true);
     try {
-        const response = await fetch(`${API_BASE_URL}/api/behavioral-test/generate`, {
+        const response = await fetch(`/api/behavioral-test/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ candidateId: candidate.id, recruiterId: profile.id }),
@@ -88,7 +76,7 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
         
         const link = `${window.location.origin}/teste/${data.testId}`;
         setGeneratedLink(link);
-    } catch (error) {
+    } catch (error: unknown) {
         console.error("Erro ao gerar link do teste:", error);
         alert("Não foi possível gerar o link do teste. Tente novamente.");
     } finally {
@@ -122,15 +110,7 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
     planejador: Number(candidate.perfil_planejador || 0),
     analista: Number(candidate.perfil_analista || 0),
   };
-  const curriculumAvailable = candidate.curriculo && candidate.curriculo[0];
-
-  const getScheduleButtonText = () => {
-    const status = candidate.status?.value;
-    if (status === 'Teste Teórico' || status === 'Entrevista por Vídeo') {
-        return 'Agendar Teste Prático';
-    }
-    return 'Agendar Entrevista';
-  };
+  const curriculumAvailable = candidate.curriculo;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50 p-4">
@@ -142,53 +122,133 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
         
         <div className="p-6 overflow-y-auto space-y-6">
           <div className="flex items-center space-x-4">
-              <div className="bg-indigo-100 text-indigo-600 p-3 rounded-full"><User size={32} /></div>
+              <div className="bg-indigo-100 text-indigo-600 p-3 rounded-full flex-shrink-0"><User size={32} /></div>
               <div>
-                  <h3 className="text-2xl font-bold text-gray-900">{candidate.nome}</h3>
-                  {candidate.email && <p className="text-md text-gray-500 flex items-center mt-1"><Mail size={16} className="mr-2"/> {candidate.email}</p>}
-                  {candidate.telefone && <p className="text-md text-gray-500 flex items-center mt-1"><MessageCircle size={16} className="mr-2"/> {candidate.telefone}</p>}
+                  <h3 className="text-2xl font-bold text-gray-900 break-words">{candidate.nome}</h3>
+                  {candidate.email && <p className="text-md text-gray-500 flex items-center mt-1 break-all"><Mail size={16} className="mr-2 flex-shrink-0"/> {candidate.email}</p>}
+                  {candidate.telefone && <p className="text-md text-gray-500 flex items-center mt-1"><MessageCircle size={16} className="mr-2 flex-shrink-0"/> {candidate.telefone}</p>}
               </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-gray-50 p-4 rounded-lg"><div className="flex items-center text-gray-500 mb-1"><Star size={16} className="mr-2" /><span className="text-sm font-semibold">Score de Aderência</span></div><p className={`text-3xl font-bold ${getScoreColor(candidate.score)}`}>{candidate.score ?? 'N/A'}%</p></div>
+              <div className="bg-gray-50 p-4 rounded-lg"><div className="flex items-center text-gray-500 mb-1"><Star size={16} className="mr-2" /><span className="text-sm font-semibold">Score</span></div><p className={`text-3xl font-bold ${getScoreColor(candidate.score)}`}>{candidate.score ?? 'N/A'}%</p></div>
               <div className="bg-gray-50 p-4 rounded-lg"><div className="flex items-center text-gray-500 mb-1"><Briefcase size={16} className="mr-2" /><span className="text-sm font-semibold">Vaga Aplicada</span></div><p className="text-lg font-semibold text-gray-800">{candidate.vaga && candidate.vaga[0] ? candidate.vaga[0].value : 'Não informada'}</p></div>
           </div>
           
-          <div><div className="flex items-center text-gray-600 mb-2"><FileText size={18} className="mr-2" /><h4 className="text-lg font-bold">Resumo da Inteligência Artificial</h4></div><p className="text-gray-700 bg-gray-50 p-4 rounded-lg border leading-relaxed">{candidate.resumo_ia || "Nenhum resumo disponível."}</p></div>
+          <div><div className="flex items-center text-gray-600 mb-2"><FileText size={18} className="mr-2" /><h4 className="text-lg font-bold">Resumo da IA</h4></div><p className="text-gray-700 bg-gray-50 p-4 rounded-lg border leading-relaxed">{candidate.resumo_ia || "Nenhum resumo disponível."}</p></div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <div className="flex items-center text-gray-600 mb-2"><Video size={18} className="mr-2" /><h4 className="text-md font-bold">Entrevista por Vídeo</h4></div>
-              {candidate.video_entrevista && candidate.video_entrevista[0] ? (
-                <a href={candidate.video_entrevista[0].url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-md bg-white border border-gray-300 text-gray-700 hover:bg-gray-100">
-                  <Download size={16} /> Ver Vídeo Enviado
-                </a>
+          {/* Seção de Entrevista por Vídeo */}
+          {candidate.status?.value === 'Entrevista por Vídeo' && (
+            <div className="bg-gradient-to-br from-indigo-50 to-purple-50 border border-indigo-200 rounded-lg p-6">
+              <div className="flex items-center text-indigo-700 mb-4">
+                <Video size={20} className="mr-2" />
+                <h4 className="text-lg font-bold">Entrevista por Vídeo</h4>
+              </div>
+              
+              {candidate.video_entrevista?.url ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between bg-white rounded-lg p-4 border border-green-200">
+                    <div className="flex items-center space-x-3">
+                      <div className="bg-green-100 text-green-600 p-2 rounded-full">
+                        <CheckCircle size={18} />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-green-800">Vídeo Enviado</p>
+                        <p className="text-sm text-green-600">
+                          {candidate.video_entrevista.dataEnvio 
+                            ? `Enviado em: ${new Date(candidate.video_entrevista.dataEnvio).toLocaleDateString('pt-BR')}`
+                            : 'Data de envio não informada'
+                          }
+                        </p>
+                      </div>
+                    </div>
+                    <a 
+                      href={candidate.video_entrevista.url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
+                    >
+                      <Play size={16} />
+                      Assistir
+                    </a>
+                  </div>
+                  
+                  <div className="text-center">
+                    <p className="text-sm text-gray-600 mb-3">Deseja substituir o vídeo atual?</p>
+                    <button
+                      onClick={() => videoInputRef.current?.click()}
+                      disabled={isUploading === 'video'}
+                      className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50 transition-colors mx-auto"
+                    >
+                      {isUploading === 'video' ? (
+                        <>
+                          <Loader2 size={16} className="animate-spin" />
+                          Enviando...
+                        </>
+                      ) : (
+                        <>
+                          <UploadCloud size={16} />
+                          Substituir Vídeo
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
               ) : (
-                <button onClick={() => videoInputRef.current?.click()} disabled={!!isUploading} className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-md bg-indigo-100 text-indigo-700 hover:bg-indigo-200 w-full justify-center">
-                  {isUploading === 'video' ? <Loader2 size={16} className="animate-spin" /> : <UploadCloud size={16} />}
-                  {isUploading === 'video' ? 'A enviar...' : 'Fazer Upload do Vídeo'}
-                </button>
+                <div className="text-center space-y-4">
+                  <div className="bg-white rounded-lg p-6 border-2 border-dashed border-indigo-300">
+                    <div className="text-center">
+                      <Video size={48} className="mx-auto text-indigo-400 mb-4" />
+                      <p className="text-lg font-semibold text-indigo-800 mb-2">Aguardando Vídeo da Entrevista</p>
+                      <p className="text-sm text-indigo-600 mb-4">
+                        O candidato precisa enviar o vídeo da entrevista para prosseguir no processo seletivo.
+                      </p>
+                      
+                      <button
+                        onClick={() => videoInputRef.current?.click()}
+                        disabled={isUploading === 'video'}
+                        className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 transition-colors mx-auto"
+                      >
+                        {isUploading === 'video' ? (
+                          <>
+                            <Loader2 size={20} className="animate-spin" />
+                            Enviando vídeo...
+                          </>
+                        ) : (
+                          <>
+                            <UploadCloud size={20} />
+                            Fazer Upload do Vídeo
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div className="text-xs text-gray-500 space-y-1">
+                    <p>• Formatos aceitos: MP4, WebM, MOV</p>
+                    <p>• Tamanho máximo: 100MB</p>
+                    <p>• Duração recomendada: 2-5 minutos</p>
+                  </div>
+                </div>
               )}
-              <input type="file" ref={videoInputRef} onChange={handleVideoFileChange} className="hidden" accept="video/*" />
-            </div>
-
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <div className="flex items-center text-gray-600 mb-2"><FileInput size={18} className="mr-2" /><h4 className="text-md font-bold">Teste Teórico</h4></div>
-              {candidate.resultado_teste_teorico && candidate.resultado_teste_teorico[0] ? (
-                <a href={candidate.resultado_teste_teorico[0].url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-md bg-white border border-gray-300 text-gray-700 hover:bg-gray-100">
-                  <Download size={16} /> Ver Resultado
-                </a>
-              ) : (
-                <button onClick={() => testInputRef.current?.click()} disabled={!!isUploading} className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-md bg-indigo-100 text-indigo-700 hover:bg-indigo-200 w-full justify-center">
-                  {isUploading === 'test' ? <Loader2 size={16} className="animate-spin" /> : <UploadCloud size={16} />}
-                  {isUploading === 'test' ? 'A enviar...' : 'Fazer Upload do Teste'}
-                </button>
+              
+              {uploadError && (
+                <div className="mt-4 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-md text-red-700">
+                  <AlertCircle size={16} />
+                  <span className="text-sm">{uploadError}</span>
+                </div>
               )}
-              <input type="file" ref={testInputRef} onChange={handleTestFileChange} className="hidden" accept=".pdf,.doc,.docx,image/*" />
+              
+              {/* Input de arquivo oculto */}
+              <input
+                ref={videoInputRef}
+                type="file"
+                accept="video/mp4,video/webm,video/mov,video/quicktime"
+                onChange={handleVideoFileChange}
+                className="hidden"
+              />
             </div>
-          </div>
-          {uploadError && <p className="text-sm text-red-600 text-center">{uploadError}</p>}
+          )}
           
           <div>
               <div className="flex items-center text-gray-600 mb-4"><BrainCircuit size={18} className="mr-2 text-purple-600" /><h4 className="text-lg font-bold">Perfil Comportamental</h4></div>
@@ -198,14 +258,14 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
                   <div className="md:col-span-1"><ProfileChart data={chartData} /></div>
                 </div>
               ) : (
-                <div className="bg-gray-50 p-4 rounded-lg border text-center"><p className="text-gray-600">{candidate.behavioral_test_status ? `Status: ${candidate.behavioral_test_status}` : 'Teste comportamental ainda não foi concluído.'}</p></div>
+                <div className="bg-gray-50 p-4 rounded-lg border text-center"><p className="text-gray-600">{candidate.behavioral_test_status ? `Status: ${candidate.behavioral_test_status}` : 'Teste não concluído.'}</p></div>
               )}
           </div>
             
           {generatedLink && (
-              <div className="bg-indigo-50 border-l-4 border-indigo-500 p-6 rounded-r-lg">
-                  <h4 className="text-lg font-bold text-indigo-800">Link do Teste Gerado!</h4>
-                  <p className="text-indigo-700 mt-2">Envie o link abaixo para o candidato. O resultado aparecerá aqui assim que ele responder.</p>
+              <div className="bg-indigo-50 border-l-4 border-indigo-500 p-4 rounded-r-lg">
+                  <h4 className="text-lg font-bold text-indigo-800">Link Gerado!</h4>
+                  <p className="text-indigo-700 mt-2 text-sm">Envie o link abaixo para o candidato.</p>
                   <div className="mt-4 flex items-center bg-white border border-gray-300 rounded-md p-2">
                       <input type="text" readOnly value={generatedLink} className="w-full text-sm text-gray-700 bg-transparent focus:outline-none" />
                       <button onClick={handleCopyLink} className={`p-2 rounded-md transition-colors ${copySuccess ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
@@ -216,18 +276,20 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
           )}
         </div>
 
-        <div className="p-4 border-t bg-gray-50 rounded-b-lg flex flex-wrap justify-end items-center gap-3">
-            <a href={curriculumAvailable?.url} target="_blank" rel="noopener noreferrer" className={`flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors ${curriculumAvailable ? 'bg-white border text-gray-700 hover:bg-gray-50' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}><Download size={16}/>Currículo</a>
-            <button onClick={handleGenerateTestLink} disabled={isGeneratingLink} className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"><ClipboardList size={16} />{isGeneratingLink ? "Gerando..." : "Teste Comportamental"}</button>
-            <button onClick={() => onScheduleInterview(candidate)} className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-blue-600 text-white hover:bg-blue-700">
-              <CalendarPlus size={16} /> {getScheduleButtonText()}
-            </button>
-            <div className="relative">
-              <button onClick={() => setShowStatusMenu(!showStatusMenu)} className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-gray-200 text-gray-800 hover:bg-gray-300 w-full">
+        <div className="p-4 border-t bg-gray-50 rounded-b-lg flex flex-col sm:flex-row sm:justify-end sm:items-center gap-3">
+            <div className="w-full sm:w-auto grid grid-cols-2 sm:flex sm:flex-row gap-3">
+              <a href={curriculumAvailable} target="_blank" rel="noopener noreferrer" className={`flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors ${curriculumAvailable ? 'bg-white border text-gray-700 hover:bg-gray-50' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}><Download size={16}/>Currículo</a>
+              <button onClick={() => onScheduleInterview(candidate)} className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-blue-600 text-white hover:bg-blue-700">
+                <CalendarPlus size={16} /> Agendar
+              </button>
+            </div>
+             <button onClick={handleGenerateTestLink} disabled={isGeneratingLink} className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"><ClipboardList size={16} />{isGeneratingLink ? "Gerando..." : "Teste Comportamental"}</button>
+            <div className="relative w-full sm:w-auto">
+              <button onClick={() => setShowStatusMenu(!showStatusMenu)} className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-gray-200 text-gray-800 hover:bg-gray-300">
                 <RefreshCcw size={16} /> Status: {candidate.status?.value || 'Triagem'} <ChevronDown size={16} className="ml-1" />
               </button>
               {showStatusMenu && (
-                <div className="absolute right-0 bottom-full mb-2 w-48 bg-white rounded-md shadow-lg z-20">
+                <div className="absolute right-0 bottom-full mb-2 w-full sm:w-48 bg-white rounded-md shadow-lg z-20">
                   {['Triagem', 'Entrevista por Vídeo', 'Teste Teórico', 'Teste Prático', 'Contratado', 'Reprovado'].map((status) => (
                     <button key={status} onClick={() => handleStatusChange(status as CandidateStatus)} className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
                       {status}

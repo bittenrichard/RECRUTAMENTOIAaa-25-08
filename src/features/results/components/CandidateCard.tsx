@@ -3,8 +3,8 @@
 
 import React from 'react';
 import { useDrag } from 'react-dnd';
-import { Candidate } from '../../../shared/types';
-import { GripVertical, CalendarPlus, Mail, CalendarDays, BrainCircuit } from 'lucide-react';
+import { Candidate } from '../../../shared/types/index';
+import { GripVertical, CalendarPlus, Mail, CalendarDays, BrainCircuit, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -12,9 +12,10 @@ interface CandidateCardProps {
   candidate: Candidate;
   onViewDetails: (candidate: Candidate) => void;
   onScheduleInterview: (candidate: Candidate) => void;
+  onUpdateLastContact?: (candidateId: number) => void;
 }
 
-const CandidateCard: React.FC<CandidateCardProps> = ({ candidate, onViewDetails, onScheduleInterview }) => {
+const CandidateCard: React.FC<CandidateCardProps> = ({ candidate, onViewDetails, onScheduleInterview, onUpdateLastContact }) => {
   const getScoreColor = (score: number | null) => {
     if (score === null) return 'bg-gray-100 text-gray-800';
     if (score >= 85) return 'bg-green-100 text-green-800';
@@ -61,6 +62,36 @@ const CandidateCard: React.FC<CandidateCardProps> = ({ candidate, onViewDetails,
               <p className="flex items-center"><Mail size={14} className="mr-1.5 flex-shrink-0"/> {candidate.email}</p>
             )}
             <p className="flex items-center"><CalendarDays size={14} className="mr-1.5 flex-shrink-0"/> Triado em: {formattedTriagemDate}</p>
+            
+            {/* Vídeo da Entrevista - Status simples */}
+            {candidate.video_entrevista?.url && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-400">Vídeo:</span>
+                <span className="text-xs text-green-600">✓ Enviado</span>
+              </div>
+            )}
+            
+            {/* Última Atualização */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-400">Última Atualização:</span>
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-gray-400">
+                  {candidate.ultima_atualizacao ? new Date(candidate.ultima_atualizacao).toLocaleDateString('pt-BR') : '—'}
+                </span>
+                {onUpdateLastContact && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUpdateLastContact(candidate.id);
+                    }}
+                    className="p-0.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded"
+                    title="Atualizar última data de contato"
+                  >
+                    <RefreshCw size={12} />
+                  </button>
+                )}
+              </div>
+            </div>
         </div>
 
         <p className="text-sm text-gray-600 mt-3 line-clamp-3 h-[60px]">
