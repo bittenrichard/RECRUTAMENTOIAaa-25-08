@@ -36,6 +36,11 @@ const ResultsPage: React.FC = () => {
   const [isVideoUploadModalOpen, setIsVideoUploadModalOpen] = useState(false);
   const [candidateForVideo, setCandidateForVideo] = useState<Candidate | null>(null);
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'score', direction: 'descending' });
+  
+  // Estados para upload de currículos
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadSuccessMessage, setUploadSuccessMessage] = useState<string | null>(null);
+  const [uploadErrorMessage, setUploadErrorMessage] = useState<string | null>(null);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -192,6 +197,55 @@ const ResultsPage: React.FC = () => {
     setIsVideoUploadModalOpen(false);
     setCandidateForVideo(null);
   };
+
+  const handleFilesSelected = async (files: FileList) => {
+    if (!selectedJob || !profile) {
+      setUploadErrorMessage('Erro: vaga ou usuário não selecionado');
+      return;
+    }
+    
+    setIsUploading(true);
+    setUploadSuccessMessage(null);
+    setUploadErrorMessage(null);
+
+    try {
+      const formData = new FormData();
+      for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i]);
+      }
+      formData.append('jobId', selectedJob.id.toString());
+      formData.append('userId', profile.id.toString());
+
+      const response = await fetch(`${API_BASE_URL}/api/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error('Falha no upload dos currículos');
+      }
+
+      // Sucesso no upload
+      setUploadSuccessMessage(`${files.length} curriculo(s) enviado(s) com sucesso!`);
+      
+      // Atualizar dados após upload
+      await fetchAllData(profile);
+      
+      // Fechar modal após 2 segundos
+      setTimeout(() => {
+        setIsUploadModalOpen(false);
+        setUploadSuccessMessage(null);
+      }, 2000);
+
+    } catch (error: unknown) {
+      console.error('Erro no upload:', error);
+      setUploadErrorMessage(
+        error instanceof Error ? error.message : 'Erro desconhecido no upload'
+      );
+    } finally {
+      setIsUploading(false);
+    }
+  };
   
   if (!selectedJob) {
     return (
@@ -277,7 +331,14 @@ const ResultsPage: React.FC = () => {
         />
       )}
       {isUploadModalOpen && (
-        <UploadModal isOpen={isUploadModalOpen} onClose={() => setIsUploadModalOpen(false)} selectedJob={selectedJob} />
+        <UploadModal 
+          isOpen={isUploadModalOpen} 
+          onClose={() => setIsUploadModalOpen(false)} 
+          onFilesSelected={handleFilesSelected}
+          isUploading={isUploading}
+          successMessage={uploadSuccessMessage}
+          errorMessage={uploadErrorMessage}
+        />
       )}
       {isVideoUploadModalOpen && candidateForVideo && (
         <VideoUploadModal

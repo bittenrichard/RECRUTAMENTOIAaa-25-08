@@ -3,19 +3,27 @@ import { useAuth } from '../../auth/hooks/useAuth';
 import UpdateProfileForm from './UpdateProfileForm';
 import UpdatePasswordForm from './UpdatePasswordForm';
 import { useGoogleAuth } from '../../../shared/hooks/useGoogleAuth';
-import { CheckCircle, Zap } from 'lucide-react';
+import { CheckCircle } from 'lucide-react';
+import { UserProfile } from '../../auth/types';
 
 const SettingsPage: React.FC = () => {
-    const { profile } = useAuth();
-    const { isGoogleConnected, connectGoogleAccount, disconnectGoogleAccount, isConnecting } = useGoogleAuth();
+    const { profile, updateProfile } = useAuth();
+    const { isGoogleConnected, connectGoogleCalendar, disconnectGoogleCalendar } = useGoogleAuth();
     const [activeTab, setActiveTab] = useState<'profile' | 'password' | 'integrations'>('profile');
 
     if (!profile) return null;
 
+    const handleProfileUpdate = async (newProfileData: Partial<UserProfile>) => {
+        // Implementar lógica de atualização do perfil
+        if (updateProfile) {
+            await updateProfile(newProfileData);
+        }
+    };
+
     const renderContent = () => {
         switch (activeTab) {
             case 'profile':
-                return <UpdateProfileForm />;
+                return <UpdateProfileForm profile={profile} onProfileUpdate={handleProfileUpdate} />;
             case 'password':
                 return <UpdatePasswordForm />;
             case 'integrations':
@@ -37,12 +45,12 @@ const SettingsPage: React.FC = () => {
                                 )}
                             </div>
                             {isGoogleConnected ? (
-                                <button onClick={disconnectGoogleAccount} className="px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50">
+                                <button onClick={disconnectGoogleCalendar} className="px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50">
                                     Desconectar
                                 </button>
                             ) : (
-                                <button onClick={connectGoogleAccount} disabled={isConnecting} className="px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
-                                    {isConnecting ? 'Conectando...' : 'Conectar Conta Google'}
+                                <button onClick={connectGoogleCalendar} className="px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
+                                    Conectar Conta Google
                                 </button>
                             )}
                         </div>

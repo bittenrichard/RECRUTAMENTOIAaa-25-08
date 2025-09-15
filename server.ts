@@ -28,15 +28,30 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 
-if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET || !process.env.GOOGLE_REDIRECT_URI) {
+// Configuração de credenciais OAuth baseada no ambiente
+const isDevelopment = process.env.NODE_ENV === 'development';
+const GOOGLE_CLIENT_ID = isDevelopment ? 
+  (process.env.GOOGLE_CLIENT_ID_DEV || process.env.GOOGLE_CLIENT_ID) : 
+  process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = isDevelopment ? 
+  (process.env.GOOGLE_CLIENT_SECRET_DEV || process.env.GOOGLE_CLIENT_SECRET) : 
+  process.env.GOOGLE_CLIENT_SECRET;
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
+
+console.log(`[OAuth Setup] Ambiente: ${isDevelopment ? 'DESENVOLVIMENTO' : 'PRODUÇÃO'}`);
+console.log(`[OAuth Setup] Client ID: ${GOOGLE_CLIENT_ID?.substring(0, 20)}...`);
+console.log(`[OAuth Setup] Redirect URI: ${GOOGLE_REDIRECT_URI}`);
+
+if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REDIRECT_URI) {
   console.error("ERRO CRÍTICO: As credenciais do Google não foram encontradas...");
+  console.error("Verifique as variáveis de ambiente no arquivo .env.local");
   process.exit(1);
 }
 
 const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  process.env.GOOGLE_REDIRECT_URI
+  GOOGLE_CLIENT_ID,
+  GOOGLE_CLIENT_SECRET,
+  GOOGLE_REDIRECT_URI
 );
 
 const USERS_TABLE_ID = '711';
@@ -633,6 +648,11 @@ app.get('/api/google/auth/connect', (req: Request, res: Response) => {
 
   const scopes = ['https://www.googleapis.com/auth/calendar.events'];
 
+  // Para desenvolvimento local, usar configuração específica
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  console.log('[Google Auth Connect] Ambiente:', isDevelopment ? 'desenvolvimento' : 'produção');
+  console.log('[Google Auth Connect] GOOGLE_REDIRECT_URI:', process.env.GOOGLE_REDIRECT_URI);
+
   const url = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: scopes,
@@ -640,6 +660,7 @@ app.get('/api/google/auth/connect', (req: Request, res: Response) => {
     state: userId.toString(),
   });
 
+  console.log('[Google Auth Connect] URL gerada:', url);
   res.json({ url });
 });
 
@@ -652,13 +673,26 @@ app.get('/api/google/auth/callback', async (req: Request, res: Response) => {
   }
 
   try {
+    console.log('[Google Auth Callback] Recebendo callback...');
+    console.log('[Google Auth Callback] Code:', code);
+    console.log('[Google Auth Callback] UserId:', userId);
+    
     const { tokens } = await oauth2Client.getToken(code as string);
+    console.log('[Google Auth Callback] Tokens recebidos:', { 
+      access_token: tokens.access_token ? 'presente' : 'ausente',
+      refresh_token: tokens.refresh_token ? 'presente' : 'ausente' 
+    });
+    
     const { refresh_token } = tokens;
 
     if (refresh_token) {
+      console.log('[Google Auth Callback] Salvando refresh_token para userId:', userId);
       await baserowServer.patch(USERS_TABLE_ID, parseInt(userId as string), {
         google_refresh_token: refresh_token
       });
+      console.log('[Google Auth Callback] Refresh token salvo com sucesso');
+    } else {
+      console.warn('[Google Auth Callback] Nenhum refresh_token recebido - usuário pode já ter autorizado antes');
     }
 
     oauth2Client.setCredentials(tokens);
@@ -667,7 +701,8 @@ app.get('/api/google/auth/callback', async (req: Request, res: Response) => {
 
   } catch (error: any) {
     console.error('[Google Auth Callback] ERRO DETALHADO na troca de código por token:', error.response?.data || error.message);
-    res.status(500).send(`<html><body><h1>Erro na Autenticação</h1></body></html>`);
+    console.error('[Google Auth Callback] Stack trace:', error.stack);
+    res.status(500).send(`<html><body><h1>Erro na Autenticação</h1><p>Detalhes: ${error.message}</p></body></html>`);
   }
 });
 

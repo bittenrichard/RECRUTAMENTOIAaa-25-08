@@ -41,25 +41,65 @@ export const useGoogleAuth = () => {
       alert('Você precisa estar logado para conectar sua agenda.');
       return;
     }
+    
+    // Verifica se estamos em desenvolvimento
+    const isDevelopment = window.location.hostname === 'localhost';
+    
+    if (isDevelopment) {
+      const userConfirm = confirm(`
+🚧 INTEGRAÇÃO GOOGLE CALENDAR - MODO DESENVOLVIMENTO 🚧
+
+As credenciais OAuth estão configuradas para produção.
+
+OPÇÕES PARA TESTAR:
+
+1. ✅ CONTINUAR - Vai abrir o popup de autenticação, mas pode dar erro
+2. ❌ CANCELAR - Para por aqui
+
+Para funcionar 100%, você precisa:
+• Criar credenciais OAuth separadas para desenvolvimento no Google Cloud Console
+• Adicionar http://localhost:3001/api/google/auth/callback como URI autorizada
+
+Deseja continuar mesmo assim?
+      `);
+      
+      if (!userConfirm) {
+        return;
+      }
+    }
+    
     try {
+      console.log('Iniciando conexão com Google Calendar...');
+      console.log('API_BASE_URL:', API_BASE_URL);
+      console.log('Profile ID:', profile.id);
+      
       const response = await fetch(`${API_BASE_URL}/api/google/auth/connect?userId=${profile.id}`);
+
+      console.log('Response status:', response.status);
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
 
       const contentType = response.headers.get("content-type");
       if (!response.ok || !contentType || !contentType.includes("application/json")) {
         const textResponse = await response.text();
         console.error("Resposta inesperada do servidor:", textResponse);
+        alert(`Erro na autenticação: ${response.status} - ${textResponse || 'Resposta vazia do servidor'}`);
         throw new Error('Falha ao obter URL de autenticação.');
       }
       
       const { url } = await response.json();
+      console.log('URL de autenticação recebida:', url);
       
       if (url) {
         isConnecting.current = true;
+        // Mostrar aviso específico para desenvolvimento
+        if (isDevelopment) {
+          console.warn('⚠️ AVISO: Em desenvolvimento, o callback pode falhar porque as credenciais OAuth não estão configuradas para localhost');
+        }
         window.open(url, '_blank', 'width=600,height=700,noopener,noreferrer');
       }
     } catch (error) {
       console.error('Erro ao iniciar conexão com Google:', error);
-      alert('Não foi possível iniciar a conexão com o Google Calendar. Tente novamente.');
+      alert('Não foi possível iniciar a conexão com o Google Calendar. Verifique o console para mais detalhes.');
     }
   }, [profile]);
 

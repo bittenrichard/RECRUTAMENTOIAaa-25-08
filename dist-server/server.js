@@ -20,11 +20,24 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET || !process.env.GOOGLE_REDIRECT_URI) {
+// Configuração de credenciais OAuth baseada no ambiente
+const isDevelopment = process.env.NODE_ENV === 'development';
+const GOOGLE_CLIENT_ID = isDevelopment ?
+    (process.env.GOOGLE_CLIENT_ID_DEV || process.env.GOOGLE_CLIENT_ID) :
+    process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = isDevelopment ?
+    (process.env.GOOGLE_CLIENT_SECRET_DEV || process.env.GOOGLE_CLIENT_SECRET) :
+    process.env.GOOGLE_CLIENT_SECRET;
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
+console.log(`[OAuth Setup] Ambiente: ${isDevelopment ? 'DESENVOLVIMENTO' : 'PRODUÇÃO'}`);
+console.log(`[OAuth Setup] Client ID: ${GOOGLE_CLIENT_ID?.substring(0, 20)}...`);
+console.log(`[OAuth Setup] Redirect URI: ${GOOGLE_REDIRECT_URI}`);
+if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REDIRECT_URI) {
     console.error("ERRO CRÍTICO: As credenciais do Google não foram encontradas...");
+    console.error("Verifique as variáveis de ambiente no arquivo .env.local");
     process.exit(1);
 }
-const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, process.env.GOOGLE_REDIRECT_URI);
+const oauth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI);
 const USERS_TABLE_ID = '711';
 const VAGAS_TABLE_ID = '709';
 const CANDIDATOS_TABLE_ID = '710';
@@ -335,6 +348,28 @@ app.post('/api/candidates/:candidateId/theoretical-test', upload.single('testRes
         res.status(500).json({ error: 'Falha ao processar o upload do resultado.' });
     }
 });
+// 4. NOVA ROTA - Atualização Manual da Última Data de Contato
+app.patch('/api/candidates/:candidateId/update-contact', async (req, res) => {
+    const { candidateId } = req.params;
+    const { userId } = req.body;
+    if (!userId) {
+        return res.status(400).json({ error: 'ID do usuário é obrigatório.' });
+    }
+    try {
+        // Atualiza o campo ultima_atualizacao com a data atual
+        const updatedCandidate = await baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), {
+            ultima_atualizacao: new Date().toISOString(),
+        });
+        res.status(200).json({
+            message: 'Data de contato atualizada com sucesso!',
+            candidate: updatedCandidate
+        });
+    }
+    catch (error) {
+        console.error('Erro ao atualizar data de contato:', error.message);
+        res.status(500).json({ error: 'Falha ao atualizar data de contato.' });
+    }
+});
 // ==================================================================
 // === FIM DAS NOVAS FUNCIONALIDADES (FASE 1) =========================
 // ==================================================================
@@ -496,12 +531,17 @@ app.get('/api/google/auth/connect', (req, res) => {
         return res.status(400).json({ error: 'userId é obrigatório' });
     }
     const scopes = ['https://www.googleapis.com/auth/calendar.events'];
+    // Para desenvolvimento local, usar configuração específica
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    console.log('[Google Auth Connect] Ambiente:', isDevelopment ? 'desenvolvimento' : 'produção');
+    console.log('[Google Auth Connect] GOOGLE_REDIRECT_URI:', process.env.GOOGLE_REDIRECT_URI);
     const url = oauth2Client.generateAuthUrl({
         access_type: 'offline',
         scope: scopes,
         prompt: 'consent',
         state: userId.toString(),
     });
+    console.log('[Google Auth Connect] URL gerada:', url);
     res.json({ url });
 });
 app.get('/api/google/auth/callback', async (req, res) => {
@@ -511,19 +551,32 @@ app.get('/api/google/auth/callback', async (req, res) => {
         return res.send(closePopupScript);
     }
     try {
+        console.log('[Google Auth Callback] Recebendo callback...');
+        console.log('[Google Auth Callback] Code:', code);
+        console.log('[Google Auth Callback] UserId:', userId);
         const { tokens } = await oauth2Client.getToken(code);
+        console.log('[Google Auth Callback] Tokens recebidos:', {
+            access_token: tokens.access_token ? 'presente' : 'ausente',
+            refresh_token: tokens.refresh_token ? 'presente' : 'ausente'
+        });
         const { refresh_token } = tokens;
         if (refresh_token) {
+            console.log('[Google Auth Callback] Salvando refresh_token para userId:', userId);
             await baserowServer.patch(USERS_TABLE_ID, parseInt(userId), {
                 google_refresh_token: refresh_token
             });
+            console.log('[Google Auth Callback] Refresh token salvo com sucesso');
+        }
+        else {
+            console.warn('[Google Auth Callback] Nenhum refresh_token recebido - usuário pode já ter autorizado antes');
         }
         oauth2Client.setCredentials(tokens);
         res.send(closePopupScript);
     }
     catch (error) {
         console.error('[Google Auth Callback] ERRO DETALHADO na troca de código por token:', error.response?.data || error.message);
-        res.status(500).send(`<html><body><h1>Erro na Autenticação</h1></body></html>`);
+        console.error('[Google Auth Callback] Stack trace:', error.stack);
+        res.status(500).send(`<html><body><h1>Erro na Autenticação</h1><p>Detalhes: ${error.message}</p></body></html>`);
     }
 });
 app.post('/api/google/auth/disconnect', async (req, res) => {
