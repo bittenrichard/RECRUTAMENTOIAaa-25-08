@@ -10,16 +10,32 @@ import fetch from 'node-fetch';
 import bcrypt from 'bcryptjs';
 import multer from 'multer';
 const app = express();
-const port = 3001;
+const port = process.env.PORT || 3001;
 // Configuração do Multer para upload de ficheiros em memória
 const storage = multer.memoryStorage();
-const upload = multer({ storage });
+const upload = multer({
+    storage,
+    limits: {
+        fileSize: 100 * 1024 * 1024, // 100MB para vídeos
+        fieldSize: 100 * 1024 * 1024 // 100MB para campos
+    }
+});
+// Configuração de CORS para produção
 const corsOptions = {
-    origin: '*'
+    origin: process.env.NODE_ENV === 'production'
+        ? [process.env.FRONTEND_URL, process.env.BACKEND_URL].filter(Boolean)
+        : '*',
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
 };
 app.use(cors(corsOptions));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Configurações de segurança para produção
+if (process.env.NODE_ENV === 'production') {
+    app.set('trust proxy', process.env.TRUST_PROXY === 'true');
+}
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 // Configuração de credenciais OAuth baseada no ambiente
 const isDevelopment = process.env.NODE_ENV === 'development';
 const GOOGLE_CLIENT_ID = isDevelopment ?
@@ -32,9 +48,24 @@ const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
 console.log(`[OAuth Setup] Ambiente: ${isDevelopment ? 'DESENVOLVIMENTO' : 'PRODUÇÃO'}`);
 console.log(`[OAuth Setup] Client ID: ${GOOGLE_CLIENT_ID?.substring(0, 20)}...`);
 console.log(`[OAuth Setup] Redirect URI: ${GOOGLE_REDIRECT_URI}`);
+// Validação crítica de variáveis de ambiente
+const requiredEnvVars = [
+    'GOOGLE_CLIENT_ID',
+    'GOOGLE_CLIENT_SECRET',
+    'GOOGLE_REDIRECT_URI',
+    'VITE_BASEROW_API_KEY',
+    'TESTE_COMPORTAMENTAL_WEBHOOK_URL'
+];
+const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+if (missingVars.length > 0) {
+    console.error("ERRO CRÍTICO: Variáveis de ambiente obrigatórias não encontradas:");
+    missingVars.forEach(varName => console.error(`  - ${varName}`));
+    console.error("Verifique o arquivo .env ou as configurações do container");
+    process.exit(1);
+}
 if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REDIRECT_URI) {
     console.error("ERRO CRÍTICO: As credenciais do Google não foram encontradas...");
-    console.error("Verifique as variáveis de ambiente no arquivo .env.local");
+    console.error("Verifique as variáveis de ambiente no arquivo .env");
     process.exit(1);
 }
 const oauth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI);
@@ -274,6 +305,24 @@ app.delete('/api/jobs/:jobId', async (req, res) => {
     }
 });
 // ==================================================================
+// === HEALTH CHECK ===
+// ==================================================================
+app.get('/health', (req, res) => {
+    res.status(200).json({
+        status: 'OK',
+        timestamp: new Date().toISOString(),
+        service: 'recrutamento-backend',
+        version: '1.0.0'
+    });
+});
+app.get('/', (req, res) => {
+    res.status(200).json({
+        message: 'Backend do Sistema de Recrutamento está funcionando!',
+        status: 'OK',
+        timestamp: new Date().toISOString()
+    });
+});
+// ==================================================================
 // === INÍCIO DAS NOVAS FUNCIONALIDADES (FASE 1) =======================
 // ==================================================================
 // 1. ROTA DE ATUALIZAÇÃO DE STATUS - Agora mais flexível e com os novos status
@@ -304,23 +353,40 @@ app.patch('/api/candidates/:candidateId/status', async (req, res) => {
 app.post('/api/candidates/:candidateId/video-interview', upload.single('video'), async (req, res) => {
     const { candidateId } = req.params;
     const file = req.file;
+    if (!candidateId) {
+        return res.status(400).json({ error: 'ID do candidato é obrigatório.' });
+    }
     if (!file) {
         return res.status(400).json({ error: 'Nenhum ficheiro de vídeo foi enviado.' });
     }
+    // Validar tamanho do arquivo (100MB)
+    if (file.size > 100 * 1024 * 1024) {
+        return res.status(413).json({ error: 'Arquivo muito grande. Limite máximo: 100MB.' });
+    }
+    // Validar tipo de arquivo
+    const allowedTypes = ['video/mp4', 'video/webm', 'video/mov', 'video/avi'];
+    if (!allowedTypes.includes(file.mimetype)) {
+        return res.status(400).json({ error: 'Tipo de arquivo não suportado. Use MP4, WebM, MOV ou AVI.' });
+    }
     try {
+        console.log(`[Upload Video] Processando upload para candidato ${candidateId}, arquivo: ${file.originalname}, tamanho: ${file.size} bytes`);
         const uploadedFileData = await baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
+        console.log(`[Upload Video] Arquivo enviado para Baserow:`, uploadedFileData);
         // Atualiza a linha do candidato com o ficheiro de vídeo
-        // O nome do campo deve ser EXATAMENTE o mesmo que está no Baserow: `video_entrevista`
         const updatedCandidate = await baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), {
-            video_entrevista: [{ name: uploadedFileData.name }],
+            video_entrevista: [{ name: uploadedFileData.name, url: uploadedFileData.url }],
         });
+        console.log(`[Upload Video] Candidato atualizado com sucesso`);
         res.status(200).json({
             message: 'Vídeo de entrevista enviado com sucesso!',
             candidate: updatedCandidate
         });
     }
     catch (error) {
-        console.error('Erro no upload do vídeo de entrevista:', error.message);
+        console.error('Erro no upload do vídeo de entrevista:', error);
+        if (error.message?.includes('413') || error.message?.includes('too large')) {
+            return res.status(413).json({ error: 'Arquivo muito grande para upload.' });
+        }
         res.status(500).json({ error: 'Falha ao processar o upload do vídeo.' });
     }
 });
@@ -336,7 +402,7 @@ app.post('/api/candidates/:candidateId/theoretical-test', upload.single('testRes
         // Atualiza a linha do candidato com o resultado do teste
         // O nome do campo deve ser EXATAMENTE o mesmo que está no Baserow: `resultado_teste_teorico`
         const updatedCandidate = await baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), {
-            resultado_teste_teorico: [{ name: uploadedFileData.name }],
+            resultado_teste_teorico: [{ name: uploadedFileData.name, url: uploadedFileData.url }],
         });
         res.status(200).json({
             message: 'Resultado do teste enviado com sucesso!',
@@ -511,6 +577,104 @@ app.post('/api/upload-curriculums', upload.array('curriculumFiles'), async (req,
         res.status(500).json({ success: false, message: error.message || 'Falha ao fazer upload dos currículos.' });
     }
 });
+// Rota alternativa para upload de currículos (compatibilidade com frontend)
+app.post('/api/upload', upload.any(), async (req, res) => {
+    console.log('[UPLOAD DEBUG] Dados recebidos:', {
+        body: req.body,
+        files: req.files ? req.files.length : 0,
+        filesInfo: req.files ? req.files.map(f => ({ name: f.originalname, size: f.size, fieldname: f.fieldname })) : []
+    });
+    const { jobId, userId } = req.body;
+    const files = req.files;
+    console.log('[UPLOAD DEBUG] Parâmetros extraídos:', { jobId, userId, filesCount: files?.length || 0 });
+    if (!jobId || !userId || !files || files.length === 0) {
+        console.log('[UPLOAD DEBUG] Erro: parâmetros obrigatórios faltando');
+        return res.status(400).json({ error: 'Vaga, usuário e arquivos de currículo são obrigatórios.' });
+    }
+    try {
+        const newCandidateEntries = [];
+        const filesWithBase64 = []; // Para armazenar arquivo + base64
+        for (const file of files) {
+            if (file.size > 5 * 1024 * 1024) {
+                return res.status(400).json({ success: false, message: `O arquivo '${file.originalname}' é muito grande. O limite é de 5MB.` });
+            }
+            // Converter arquivo para base64
+            const base64Content = file.buffer.toString('base64');
+            console.log(`[UPLOAD DEBUG] Base64 gerado para ${file.originalname}, tamanho: ${base64Content.length} chars`);
+            const uploadedFile = await baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
+            const newCandidateData = {
+                nome: file.originalname.split('.')[0] || 'Novo Candidato',
+                curriculo: [{ name: uploadedFile.name, url: uploadedFile.url }],
+                usuario: [parseInt(userId)],
+                vaga: [parseInt(jobId)],
+                score: null,
+                resumo_ia: null,
+                status: 'Triagem',
+            };
+            const createdCandidate = await baserowServer.post(CANDIDATOS_TABLE_ID, newCandidateData);
+            newCandidateEntries.push(createdCandidate);
+            // Armazenar arquivo com base64 para o webhook
+            filesWithBase64.push({
+                originalname: file.originalname,
+                mimetype: file.mimetype,
+                size: file.size,
+                base64: base64Content,
+                candidateId: createdCandidate.id
+            });
+        }
+        const jobInfo = await baserowServer.getRow(VAGAS_TABLE_ID, parseInt(jobId));
+        const userInfo = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+        if (N8N_TRIAGEM_WEBHOOK_URL && newCandidateEntries.length > 0 && jobInfo && userInfo) {
+            const candidatosParaWebhook = newCandidateEntries.map(candidate => {
+                // Encontrar o arquivo base64 correspondente ao candidato
+                const fileData = filesWithBase64.find(f => f.candidateId === candidate.id);
+                return {
+                    id: candidate.id,
+                    nome: candidate.nome,
+                    email: candidate.email,
+                    telefone: candidate.telefone,
+                    curriculo_url: candidate.curriculo?.[0]?.url,
+                    status: candidate.status,
+                    // Adicionar dados do arquivo base64
+                    arquivo: fileData ? {
+                        nome: fileData.originalname,
+                        tipo: fileData.mimetype,
+                        tamanho: fileData.size,
+                        base64: fileData.base64
+                    } : null
+                };
+            });
+            console.log('[UPLOAD DEBUG] Payload sendo enviado para N8N:', {
+                candidatos: candidatosParaWebhook.length,
+                temBase64: candidatosParaWebhook.some(c => c.arquivo?.base64)
+            });
+            const webhookPayload = {
+                tipo: 'triagem_curriculo_lote',
+                recrutador: { id: userInfo.id, nome: userInfo.nome, email: userInfo.Email, empresa: userInfo.empresa },
+                vaga: { id: jobInfo.id, titulo: jobInfo.titulo, descricao: jobInfo.descricao, endereco: jobInfo.Endereco, requisitos_obrigatorios: jobInfo.requisitos_obrigatorios, requisitos_desejaveis: jobInfo.requisitos_desejaveis },
+                candidatos: candidatosParaWebhook
+            };
+            const n8nResponse = await fetch(N8N_TRIAGEM_WEBHOOK_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(webhookPayload)
+            });
+            if (!n8nResponse.ok) {
+                const errorText = await n8nResponse.text();
+                throw new Error(`O N8N respondeu com um erro na triagem: ${n8nResponse.statusText} - ${errorText}`);
+            }
+            const updatedCandidatesResponse = await n8nResponse.json();
+            res.json({ success: true, message: `${files.length} currículo(s) analisado(s) com sucesso!`, newCandidates: updatedCandidatesResponse.candidates || [] });
+        }
+        else {
+            res.json({ success: true, message: `${files.length} currículo(s) enviado(s), mas não foram para análise.`, newCandidates: newCandidateEntries });
+        }
+    }
+    catch (error) {
+        console.error('Erro no upload de currículos (backend /api/upload):', error);
+        res.status(500).json({ success: false, message: error.message || 'Falha ao fazer upload dos currículos.' });
+    }
+});
 app.get('/api/schedules/:userId', async (req, res) => {
     const { userId } = req.params;
     if (!userId) {
@@ -659,15 +823,19 @@ app.post('/api/google/calendar/create-event', async (req, res) => {
 });
 app.post('/api/behavioral-test/generate', async (req, res) => {
     const { candidateId, recruiterId } = req.body;
+    console.log(`[Behavioral Test] Requisição recebida:`, { candidateId, recruiterId });
     if (!candidateId || !recruiterId) {
+        console.log(`[Behavioral Test] Erro: dados obrigatórios faltando`);
         return res.status(400).json({ error: 'ID do candidato e do recrutador são obrigatórios.' });
     }
     try {
+        console.log(`[Behavioral Test] Criando entrada na tabela ${TESTE_COMPORTAMENTAL_TABLE_ID}`);
         const newTestEntry = await baserowServer.post(TESTE_COMPORTAMENTAL_TABLE_ID, {
             candidato: [parseInt(candidateId)],
             recrutador: [parseInt(recruiterId)],
             status: 'Pendente',
         });
+        console.log(`[Behavioral Test] Teste criado com sucesso:`, newTestEntry.id);
         res.status(201).json({ success: true, testId: newTestEntry.id });
     }
     catch (error) {
@@ -785,5 +953,12 @@ app.get('/api/behavioral-test/result/:testId', async (req, res) => {
     }
 });
 app.listen(port, () => {
-    console.log(`Backend rodando em http://localhost:${port}`);
+    const isProduction = process.env.NODE_ENV === 'production';
+    console.log(`🚀 Backend rodando em ${isProduction ? 'PRODUÇÃO' : 'DESENVOLVIMENTO'}`);
+    console.log(`📡 Porta: ${port}`);
+    console.log(`🌐 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
+    console.log(`🔗 Backend URL: ${process.env.BACKEND_URL || `http://localhost:${port}`}`);
+    console.log(`🗄️  Baserow API: ${process.env.VITE_BASEROW_API_KEY ? 'Configurado' : 'NÃO CONFIGURADO'}`);
+    console.log(`🤖 N8N Webhooks: ${process.env.TESTE_COMPORTAMENTAL_WEBHOOK_URL ? 'Configurado' : 'NÃO CONFIGURADO'}`);
+    console.log('✅ Servidor pronto para receber requisições!');
 });

@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { X, User, Star, Briefcase, FileText, Download, CalendarPlus, ChevronDown, RefreshCcw, Mail, Copy, Check, BrainCircuit, UploadCloud, Video, Loader2, ClipboardList, MessageCircle, CheckCircle, AlertCircle, Play } from 'lucide-react';
+import { X, User, Star, Briefcase, FileText, Download, CalendarPlus, ChevronDown, RefreshCcw, Mail, Copy, Check, BrainCircuit, UploadCloud, Video, Loader2, ClipboardList, MessageCircle, AlertCircle } from 'lucide-react';
 import { Candidate, CandidateStatus } from '../../../shared/types/index';
 import { useAuth } from '../../auth/hooks/useAuth';
 import ProfileChart from '../../behavioral/components/ProfileChart';
@@ -61,6 +61,11 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
     onUpdateStatus(candidate.id, newStatus);
     setShowStatusMenu(false);
   };
+
+  // DEBUG - Logs temporários
+  console.log('CandidateDetailModal - video_entrevista:', candidate.video_entrevista);
+  console.log('CandidateDetailModal - Tipo:', typeof candidate.video_entrevista);
+  console.log('CandidateDetailModal - É array?', Array.isArray(candidate.video_entrevista));
   
   const handleGenerateTestLink = async () => {
     if (!profile || !candidate) return;
@@ -145,35 +150,25 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
                 <h4 className="text-lg font-bold">Entrevista por Vídeo</h4>
               </div>
               
-              {candidate.video_entrevista?.url ? (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between bg-white rounded-lg p-4 border border-green-200">
-                    <div className="flex items-center space-x-3">
-                      <div className="bg-green-100 text-green-600 p-2 rounded-full">
-                        <CheckCircle size={18} />
-                      </div>
-                      <div>
-                        <p className="font-semibold text-green-800">Vídeo Enviado</p>
-                        <p className="text-sm text-green-600">
-                          {candidate.video_entrevista.dataEnvio 
-                            ? `Enviado em: ${new Date(candidate.video_entrevista.dataEnvio).toLocaleDateString('pt-BR')}`
-                            : 'Data de envio não informada'
-                          }
-                        </p>
-                      </div>
-                    </div>
-                    <a 
-                      href={candidate.video_entrevista.url} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
+              {candidate.video_entrevista && candidate.video_entrevista.length > 0 ? (
+                <div className="space-y-4">
+                  {/* Player de vídeo */}
+                  <div className="bg-white rounded-lg p-4 border border-gray-200">
+                    <h5 className="text-md font-semibold text-gray-800 mb-3">Entrevista em Vídeo</h5>
+                    <video 
+                      controls 
+                      className="w-full rounded-lg shadow-sm"
+                      style={{ maxHeight: '400px' }}
                     >
-                      <Play size={16} />
-                      Assistir
-                    </a>
+                      <source src={candidate.video_entrevista[0].url} type="video/mp4" />
+                      <source src={candidate.video_entrevista[0].url} type="video/webm" />
+                      <source src={candidate.video_entrevista[0].url} type="video/mov" />
+                      Seu navegador não suporta o elemento de vídeo.
+                    </video>
                   </div>
                   
-                  <div className="text-center">
+                  {/* Opção de substituir vídeo */}
+                  <div className="text-center bg-gray-50 rounded-lg p-4">
                     <p className="text-sm text-gray-600 mb-3">Deseja substituir o vídeo atual?</p>
                     <button
                       onClick={() => videoInputRef.current?.click()}

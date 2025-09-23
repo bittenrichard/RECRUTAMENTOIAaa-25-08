@@ -3,9 +3,8 @@
 export type CandidateStatus = 'Triagem' | 'Entrevista' | 'Entrevista por Vídeo' | 'Teste Teórico' | 'Teste Prático' | 'Aprovado' | 'Contratado' | 'Reprovado';
 
 export interface CandidateVideo {
+  name: string; // Nome do arquivo
   url: string; // URL do vídeo (Baserow ou storage externo)
-  status: 'Pendente' | 'Enviado' | 'Aprovado' | 'Reprovado';
-  dataEnvio?: string; // ISO date
 }
 
 export interface JobPosting {
@@ -23,7 +22,7 @@ export interface Candidate {
   score: number | null;
   status?: { value: string };
   vaga?: JobPosting[]; // Array de vagas que o candidato se candidatou
-  video_entrevista?: CandidateVideo;
+  video_entrevista?: CandidateVideo[];
   ultima_atualizacao?: string; // ISO date
   // Campos existentes que podem estar presentes
   telefone?: string;

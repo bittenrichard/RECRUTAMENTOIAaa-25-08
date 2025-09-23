@@ -64,7 +64,7 @@ const CandidateCard: React.FC<CandidateCardProps> = ({ candidate, onViewDetails,
             <p className="flex items-center"><CalendarDays size={14} className="mr-1.5 flex-shrink-0"/> Triado em: {formattedTriagemDate}</p>
             
             {/* Vídeo da Entrevista - Status simples */}
-            {candidate.video_entrevista?.url && (
+            {candidate.video_entrevista && candidate.video_entrevista.length > 0 && (
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-400">Vídeo:</span>
                 <span className="text-xs text-green-600">✓ Enviado</span>

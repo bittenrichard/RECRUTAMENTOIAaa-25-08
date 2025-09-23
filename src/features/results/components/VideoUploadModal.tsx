@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { X, Upload, Video, AlertCircle, CheckCircle } from 'lucide-react';
+import { X, Upload, Video, AlertCircle, CheckCircle, Play, RotateCcw } from 'lucide-react';
 import { Candidate } from '../../../shared/types';
 
 interface VideoUploadModalProps {
@@ -13,10 +13,26 @@ const VideoUploadModal: React.FC<VideoUploadModalProps> = ({ isOpen, onClose, ca
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [showReupload, setShowReupload] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // DEBUG: Log dos dados do candidato
+  console.log('VideoUploadModal - Candidato recebido:', candidate);
+  console.log('VideoUploadModal - video_entrevista:', candidate.video_entrevista);
+  console.log('VideoUploadModal - Tipo video_entrevista:', typeof candidate.video_entrevista);
+  console.log('VideoUploadModal - É array?', Array.isArray(candidate.video_entrevista));
+
+  // Verificar se já existe vídeo enviado
+  const hasVideo = candidate.video_entrevista && candidate.video_entrevista.length > 0;
 
   const handleFileSelect = () => {
     fileInputRef.current?.click();
+  };
+
+  const handleReupload = () => {
+    setShowReupload(true);
+    setUploadSuccess(false);
+    setUploadError(null);
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -52,6 +68,7 @@ const VideoUploadModal: React.FC<VideoUploadModalProps> = ({ isOpen, onClose, ca
       if (!response.ok) throw new Error('Falha no upload');
 
       setUploadSuccess(true);
+      setShowReupload(false); // Reset o estado de reenvio
       setTimeout(() => {
         onVideoUploaded();
         onClose();
@@ -83,9 +100,52 @@ const VideoUploadModal: React.FC<VideoUploadModalProps> = ({ isOpen, onClose, ca
           <p className="text-gray-500 text-xs mt-1">
             Formatos aceitos: MP4, WebM, MOV (máx. 100MB)
           </p>
+          <p className="text-gray-500 text-xs">
+            Duração recomendada: 2-5 minutos
+          </p>
         </div>
 
-        {uploadSuccess ? (
+        {/* Player de vídeo quando já existe um vídeo enviado */}
+        {hasVideo && !showReupload && !uploadSuccess ? (
+          <div className="space-y-4">
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle size={16} className="text-green-500" />
+                <span className="text-green-700 font-medium">Vídeo da entrevista enviado</span>
+              </div>
+              
+              {/* Player de vídeo */}
+              <div className="mt-3">
+                <video 
+                  controls 
+                  className="w-full rounded-lg shadow-sm"
+                  style={{ maxHeight: '300px' }}
+                >
+                  <source src={candidate.video_entrevista?.[0]?.url} type="video/mp4" />
+                  <source src={candidate.video_entrevista?.[0]?.url} type="video/webm" />
+                  <source src={candidate.video_entrevista?.[0]?.url} type="video/mov" />
+                  Seu navegador não suporta a reprodução de vídeo.
+                </video>
+              </div>
+
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={handleReupload}
+                  className="flex items-center gap-2 px-3 py-2 text-orange-600 bg-orange-50 rounded-md hover:bg-orange-100 text-sm"
+                >
+                  <RotateCcw size={16} />
+                  Reenviar Vídeo
+                </button>
+                <button
+                  onClick={onClose}
+                  className="flex-1 px-3 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 text-sm"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : uploadSuccess ? (
           <div className="text-center py-8">
             <CheckCircle size={48} className="text-green-500 mx-auto mb-4" />
             <p className="text-green-600 font-semibold">Vídeo enviado com sucesso!</p>
@@ -127,25 +187,28 @@ const VideoUploadModal: React.FC<VideoUploadModalProps> = ({ isOpen, onClose, ca
           </div>
         )}
 
-        <div className="flex gap-2 mt-6">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
-            disabled={isUploading}
-          >
-            Cancelar
-          </button>
-          {!uploadSuccess && (
+        {/* Botões - só mostrar se não está exibindo vídeo já enviado */}
+        {(!hasVideo || showReupload || uploadSuccess) && (
+          <div className="flex gap-2 mt-6">
             <button
-              onClick={handleFileSelect}
-              className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
               disabled={isUploading}
             >
-              <Upload size={16} className="inline mr-2" />
-              Selecionar Vídeo
+              {uploadSuccess ? 'Fechar' : 'Cancelar'}
             </button>
-          )}
-        </div>
+            {!uploadSuccess && (
+              <button
+                onClick={handleFileSelect}
+                className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                disabled={isUploading}
+              >
+                <Upload size={16} className="inline mr-2" />
+                {showReupload ? 'Selecionar Novo Vídeo' : 'Selecionar Vídeo'}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
