@@ -6,6 +6,7 @@ dotenv.config({ path: `.env.${process.env.NODE_ENV || 'development'}` });
 
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import crypto from 'crypto';
 import { google } from 'googleapis';
 import { baserowServer } from './src/shared/services/baserowServerClient.js';
 import fetch from 'node-fetch';
@@ -98,6 +99,8 @@ const SALT_ROUNDS = 10;
 const TESTE_COMPORTAMENTAL_TABLE_ID = '727';
 const TESTE_COMPORTAMENTAL_WEBHOOK_URL = process.env.TESTE_COMPORTAMENTAL_WEBHOOK_URL;
 const N8N_TRIAGEM_WEBHOOK_URL = process.env.N8N_FILE_UPLOAD_URL;
+const N8N_EMAIL_WEBHOOK_URL = process.env.N8N_EMAIL_WEBHOOK_URL;
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://recrutamentoia.com.br';
 
 
 interface BaserowJobPosting {
@@ -197,6 +200,106 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Erro no login (backend):', error);
     res.status(500).json({ error: error.message || 'Erro ao fazer login.' });
+  }
+});
+
+// Endpoint: Solicitar reset de senha
+app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
+  const { email } = req.body;
+  
+  if (!email) {
+    return res.status(400).json({ error: 'Email é obrigatório.' });
+  }
+
+  try {
+    const emailLowerCase = email.toLowerCase();
+    
+    // 1. Buscar usuário no Baserow Users (711)
+    const { results: users } = await baserowServer.get(USERS_TABLE_ID, `?filter__Email__equal=${emailLowerCase}`);
+    const user = users && users[0];
+    
+    if (!user) {
+      return res.status(404).json({ error: 'Email não encontrado.' });
+    }
+    
+    // 2. Gerar token único
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetExpires = new Date(Date.now() + 3600000); // 1 hora
+    
+    // 3. Salvar no Baserow
+    await baserowServer.patch(USERS_TABLE_ID, user.id, {
+      reset_token: resetToken,
+      reset_expires: resetExpires.toISOString()
+    });
+    
+    // 4. Disparar N8N webhook para envio de email (se configurado)
+    if (N8N_EMAIL_WEBHOOK_URL) {
+      try {
+        await fetch(N8N_EMAIL_WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: emailLowerCase,
+            resetToken,
+            resetLink: `${FRONTEND_URL}/reset-password/${resetToken}`,
+            userName: user.nome || 'Usuário'
+          })
+        });
+        console.log(`[FORGOT PASSWORD] Email de recuperação enviado para: ${emailLowerCase}`);
+      } catch (emailError) {
+        console.error('[FORGOT PASSWORD] Erro ao enviar email via N8N:', emailError);
+        // Não falhar a requisição se o email não for enviado
+      }
+    }
+    
+    res.json({ message: 'Email de recuperação enviado com sucesso.' });
+    
+  } catch (error: unknown) {
+    console.error('[FORGOT PASSWORD] Erro:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
+  }
+});
+
+// Endpoint: Confirmar reset de senha
+app.post('/api/auth/reset-password', async (req: Request, res: Response) => {
+  const { token, newPassword } = req.body;
+  
+  if (!token || !newPassword) {
+    return res.status(400).json({ error: 'Token e nova senha são obrigatórios.' });
+  }
+  
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'A senha deve ter pelo menos 6 caracteres.' });
+  }
+
+  try {
+    // 1. Validar token no Baserow
+    const now = new Date().toISOString();
+    const { results: users } = await baserowServer.get(USERS_TABLE_ID, 
+      `?filter__reset_token__equal=${token}&filter__reset_expires__date_after=${now}`
+    );
+    const user = users && users[0];
+    
+    if (!user) {
+      return res.status(400).json({ error: 'Token inválido ou expirado.' });
+    }
+    
+    // 2. Hash nova senha
+    const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    
+    // 3. Atualizar no Baserow
+    await baserowServer.patch(USERS_TABLE_ID, user.id, {
+      senha_hash: hashedPassword,
+      reset_token: null,
+      reset_expires: null
+    });
+    
+    console.log(`[RESET PASSWORD] Senha alterada com sucesso para usuário ID: ${user.id}`);
+    res.json({ message: 'Senha alterada com sucesso.' });
+    
+  } catch (error: unknown) {
+    console.error('[RESET PASSWORD] Erro:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
   }
 });
 

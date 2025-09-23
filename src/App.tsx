@@ -9,6 +9,8 @@ import { useDataStore } from './shared/store/useDataStore';
 
 import LoginPage from './features/auth/components/LoginPage';
 import SignUpPage from './features/auth/components/SignUpPage';
+import ForgotPasswordPage from './features/auth/pages/ForgotPasswordPage';
+import ResetPasswordPage from './features/auth/pages/ResetPasswordPage';
 import DashboardPage from './features/dashboard/components/DashboardPage';
 import NewScreeningPage from './features/screening/components/NewScreeningPage';
 import EditScreeningPage from './features/screening/components/EditScreeningPage';
@@ -69,6 +71,8 @@ function App() {
         <Routes>
           <Route path="/login" element={!isAuthenticated ? <LoginPage /> : <Navigate to="/dashboard" />} />
           <Route path="/signup" element={!isAuthenticated ? <SignUpPage /> : <Navigate to="/dashboard" />} />
+          <Route path="/forgot-password" element={!isAuthenticated ? <ForgotPasswordPage /> : <Navigate to="/dashboard" />} />
+          <Route path="/reset-password/:token" element={!isAuthenticated ? <ResetPasswordPage /> : <Navigate to="/dashboard" />} />
           
           <Route element={<ProtectedRoute />}>
             <Route path="/*" element={

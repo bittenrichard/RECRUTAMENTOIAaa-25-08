@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { LoginCredentials } from '../types';
 
 interface LoginFormProps {
@@ -58,12 +59,12 @@ const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = false }) =>
 
       <div className="flex items-center justify-between">
         <div className="text-sm">
-          <a
-            href="#"
-            className="font-medium text-indigo-600 hover:text-indigo-500"
+          <Link
+            to="/forgot-password"
+            className="font-medium text-indigo-600 hover:text-indigo-500 transition-colors"
           >
             Esqueceu sua senha?
-          </a>
+          </Link>
         </div>
       </div>
 
