@@ -3,6 +3,7 @@ import { X, User, Star, Briefcase, FileText, Download, CalendarPlus, ChevronDown
 import { Candidate, CandidateStatus } from '../../../shared/types/index';
 import { useAuth } from '../../auth/hooks/useAuth';
 import ProfileChart from '../../behavioral/components/ProfileChart';
+import { formatPhoneNumberForWhatsApp } from '../../../shared/utils/formatters';
 
 interface CandidateDetailModalProps {
   candidate: Candidate | null;
@@ -149,7 +150,19 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
     planejador: Number(candidate.perfil_planejador || 0),
     analista: Number(candidate.perfil_analista || 0),
   };
-  const curriculumAvailable = candidate.curriculo;
+  // Verificar se o currículo é um array ou string diretamente
+  const curriculumAvailable = Array.isArray(candidate.curriculo) 
+    ? candidate.curriculo[0]?.url 
+    : candidate.curriculo;
+
+  // Preparar número do WhatsApp
+  const whatsappNumber = formatPhoneNumberForWhatsApp(candidate.telefone || null);
+
+  // Verificar se deve mostrar a seção de entrevista por vídeo
+  const shouldShowVideoSection = () => {
+    const videoStatusList = ['Entrevista por Vídeo', 'Teste Teórico', 'Teste Prático', 'Contratado', 'Reprovado'];
+    return videoStatusList.includes(candidate.status?.value || '');
+  };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50 p-4">
@@ -177,11 +190,16 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
           <div><div className="flex items-center text-gray-600 mb-2"><FileText size={18} className="mr-2" /><h4 className="text-lg font-bold">Resumo da IA</h4></div><p className="text-gray-700 bg-gray-50 p-4 rounded-lg border leading-relaxed">{candidate.resumo_ia || "Nenhum resumo disponível."}</p></div>
           
           {/* Seção de Entrevista por Vídeo */}
-          {candidate.status?.value === 'Entrevista por Vídeo' && (
+          {shouldShowVideoSection() && (
             <div className="bg-gradient-to-br from-indigo-50 to-purple-50 border border-indigo-200 rounded-lg p-6">
               <div className="flex items-center text-indigo-700 mb-4">
                 <Video size={20} className="mr-2" />
-                <h4 className="text-lg font-bold">Entrevista por Vídeo</h4>
+                <h4 className="text-lg font-bold">
+                  {candidate.status?.value === 'Entrevista por Vídeo' 
+                    ? 'Entrevista por Vídeo' 
+                    : 'Vídeo da Entrevista'
+                  }
+                </h4>
               </div>
               
               {candidate.video_entrevista && candidate.video_entrevista.length > 0 ? (
@@ -228,9 +246,17 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
                   <div className="bg-white rounded-lg p-6 border-2 border-dashed border-indigo-300">
                     <div className="text-center">
                       <Video size={48} className="mx-auto text-indigo-400 mb-4" />
-                      <p className="text-lg font-semibold text-indigo-800 mb-2">Aguardando Vídeo da Entrevista</p>
+                      <p className="text-lg font-semibold text-indigo-800 mb-2">
+                        {candidate.status?.value === 'Entrevista por Vídeo' 
+                          ? 'Aguardando Vídeo da Entrevista'
+                          : 'Vídeo não Enviado'
+                        }
+                      </p>
                       <p className="text-sm text-indigo-600 mb-4">
-                        O candidato precisa enviar o vídeo da entrevista para prosseguir no processo seletivo.
+                        {candidate.status?.value === 'Entrevista por Vídeo' 
+                          ? 'O candidato precisa enviar o vídeo da entrevista para prosseguir no processo seletivo.'
+                          : 'O candidato avançou no processo sem enviar o vídeo da entrevista. Você pode fazer o upload manualmente se necessário.'
+                        }
                       </p>
                       
                       <button
@@ -246,7 +272,10 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
                         ) : (
                           <>
                             <UploadCloud size={20} />
-                            Fazer Upload do Vídeo
+                            {candidate.status?.value === 'Entrevista por Vídeo' 
+                              ? 'Fazer Upload do Vídeo'
+                              : 'Upload de Vídeo (Manual)'
+                            }
                           </>
                         )}
                       </button>
@@ -318,35 +347,146 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
           )}
         </div>
 
-        <div className="p-4 border-t bg-gray-50 rounded-b-lg flex flex-col sm:flex-row sm:justify-end sm:items-center gap-3">
-            <div className="w-full sm:w-auto grid grid-cols-2 sm:flex sm:flex-row gap-3">
-              <a href={curriculumAvailable} target="_blank" rel="noopener noreferrer" className={`flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors ${curriculumAvailable ? 'bg-white border text-gray-700 hover:bg-gray-50' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}><Download size={16}/>Currículo</a>
-              <button onClick={() => onScheduleInterview(candidate)} className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-blue-600 text-white hover:bg-blue-700">
+        {/* Barra inferior melhorada para desktop e mobile */}
+        <div className="p-4 border-t bg-gray-50 rounded-b-lg">
+          {/* Layout para mobile (stack vertical) */}
+          <div className="flex flex-col gap-3 sm:hidden">
+            <div className="grid grid-cols-2 gap-3">
+              {curriculumAvailable ? (
+                <a 
+                  href={curriculumAvailable} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex items-center justify-center gap-2 px-3 py-2 text-sm font-semibold rounded-md transition-colors bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
+                >
+                  <Download size={16}/> Currículo
+                </a>
+              ) : (
+                <button 
+                  disabled 
+                  className="flex items-center justify-center gap-2 px-3 py-2 text-sm font-semibold rounded-md bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200"
+                  title="Currículo não disponível"
+                >
+                  <Download size={16}/> Currículo
+                </button>
+              )}
+              <button onClick={() => onScheduleInterview(candidate)} className="flex items-center justify-center gap-2 px-3 py-2 text-sm font-semibold rounded-md transition-colors bg-blue-600 text-white hover:bg-blue-700">
                 <CalendarPlus size={16} /> Agendar
               </button>
             </div>
-            <div className="w-full sm:w-auto flex flex-col sm:flex-row gap-2">
-              <button onClick={handleGenerateTestLink} disabled={isGeneratingLink} className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50">
+            <div className="grid grid-cols-1 gap-2">
+              <a
+                href={whatsappNumber ? `https://wa.me/${whatsappNumber}` : undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => !whatsappNumber && e.preventDefault()}
+                className={`flex items-center justify-center gap-2 px-3 py-2 text-sm font-semibold rounded-md transition-colors ${
+                  whatsappNumber 
+                    ? 'bg-green-600 text-white hover:bg-green-700' 
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                }`}
+                title={whatsappNumber ? 'Chamar no WhatsApp' : 'Telefone não disponível'}
+              >
+                <MessageCircle size={16} /> WhatsApp
+              </a>
+            </div>
+            <div className="grid grid-cols-1 gap-2">
+              <button onClick={handleGenerateTestLink} disabled={isGeneratingLink} className="flex items-center justify-center gap-2 px-3 py-2 text-sm font-semibold rounded-md transition-colors bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50">
                 <ClipboardList size={16} />{isGeneratingLink ? "Gerando..." : "Teste Comportamental"}
               </button>
-              <button onClick={handleGenerateTheoreticalTestLink} disabled={isGeneratingTheoreticalLink} className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-green-600 text-white hover:bg-green-700 disabled:opacity-50">
+              <button onClick={handleGenerateTheoreticalTestLink} disabled={isGeneratingTheoreticalLink} className="flex items-center justify-center gap-2 px-3 py-2 text-sm font-semibold rounded-md transition-colors bg-green-600 text-white hover:bg-green-700 disabled:opacity-50">
                 <BookOpen size={16} />{isGeneratingTheoreticalLink ? "Gerando..." : "Teste Teórico"}
               </button>
             </div>
-            <div className="relative w-full sm:w-auto">
-              <button onClick={() => setShowStatusMenu(!showStatusMenu)} className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-gray-200 text-gray-800 hover:bg-gray-300">
+          </div>
+
+          {/* Layout para desktop (horizontal com melhor espaçamento) */}
+          <div className="hidden sm:flex sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
+            {/* Grupo de ações principais - esquerda */}
+            <div className="flex flex-wrap items-center gap-3">
+              {curriculumAvailable ? (
+                <a 
+                  href={curriculumAvailable} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-md transition-colors bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 whitespace-nowrap"
+                >
+                  <Download size={16}/> Currículo
+                </a>
+              ) : (
+                <button 
+                  disabled 
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-md bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200 whitespace-nowrap"
+                  title="Currículo não disponível"
+                >
+                  <Download size={16}/> Currículo
+                </button>
+              )}
+              <button onClick={() => onScheduleInterview(candidate)} className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-md transition-colors bg-blue-600 text-white hover:bg-blue-700 hover:shadow-md whitespace-nowrap">
+                <CalendarPlus size={16} /> Agendar
+              </button>
+              <a
+                href={whatsappNumber ? `https://wa.me/${whatsappNumber}` : undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => !whatsappNumber && e.preventDefault()}
+                className={`flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-md transition-colors whitespace-nowrap ${
+                  whatsappNumber 
+                    ? 'bg-green-600 text-white hover:bg-green-700 hover:shadow-md' 
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                }`}
+                title={whatsappNumber ? 'Chamar no WhatsApp' : 'Telefone não disponível'}
+              >
+                <MessageCircle size={16} /> WhatsApp
+              </a>
+            </div>
+
+            {/* Grupo de testes - centro */}
+            <div className="flex flex-wrap items-center gap-3">
+              <button onClick={handleGenerateTestLink} disabled={isGeneratingLink} className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-md transition-colors bg-purple-600 text-white hover:bg-purple-700 hover:shadow-md disabled:opacity-50 whitespace-nowrap">
+                <ClipboardList size={16} />{isGeneratingLink ? "Gerando..." : "Teste Comportamental"}
+              </button>
+              <button onClick={handleGenerateTheoreticalTestLink} disabled={isGeneratingTheoreticalLink} className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-md transition-colors bg-green-600 text-white hover:bg-green-700 hover:shadow-md disabled:opacity-50 whitespace-nowrap">
+                <BookOpen size={16} />{isGeneratingTheoreticalLink ? "Gerando..." : "Teste Teórico"}
+              </button>
+            </div>
+
+            {/* Grupo de status - direita */}
+            <div className="relative">
+              <button onClick={() => setShowStatusMenu(!showStatusMenu)} className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-md transition-colors bg-gray-200 text-gray-800 hover:bg-gray-300 hover:shadow-sm whitespace-nowrap">
                 <RefreshCcw size={16} /> Status: {candidate.status?.value || 'Triagem'} <ChevronDown size={16} className="ml-1" />
               </button>
               {showStatusMenu && (
-                <div className="absolute right-0 bottom-full mb-2 w-full sm:w-48 bg-white rounded-md shadow-lg z-20">
+                <div className="absolute right-0 bottom-full mb-2 w-64 bg-white rounded-md shadow-lg border border-gray-200 z-30">
                   {['Triagem', 'Entrevista por Vídeo', 'Teste Teórico', 'Teste Prático', 'Contratado', 'Reprovado'].map((status) => (
-                    <button key={status} onClick={() => handleStatusChange(status as CandidateStatus)} className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                    <button key={status} onClick={() => handleStatusChange(status as CandidateStatus)} className="block w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 first:rounded-t-md last:rounded-b-md transition-colors">
                       {status}
                     </button>
                   ))}
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Botão de status para mobile (separado) */}
+          <div className="mt-3 sm:hidden">
+            <div className="relative">
+              <button onClick={() => setShowStatusMenu(!showStatusMenu)} className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-semibold rounded-md transition-colors bg-gray-200 text-gray-800 hover:bg-gray-300">
+                <RefreshCcw size={16} /> Status: {candidate.status?.value || 'Triagem'} <ChevronDown size={16} className="ml-1" />
+              </button>
+              {showStatusMenu && (
+                <div className="absolute left-0 top-full mt-2 w-full bg-white rounded-md shadow-lg border border-gray-200 z-30">
+                  {['Triagem', 'Entrevista por Vídeo', 'Teste Teórico', 'Teste Prático', 'Contratado', 'Reprovado'].map((status) => (
+                    <button key={status} onClick={() => handleStatusChange(status as CandidateStatus)} className="block w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 first:rounded-t-md last:rounded-b-md transition-colors">
+                      {status}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
