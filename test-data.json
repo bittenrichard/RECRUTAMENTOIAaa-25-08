@@ -1,0 +1,16 @@
+{
+  "nome": "Teste Debug",
+  "descricao": "Prova de teste para debug",
+  "tempo_limite": 30,
+  "questoes": [
+    {
+      "enunciado": "2+2=?",
+      "tipo": "multipla_escolha",
+      "pontuacao": 10,
+      "opcoes": [
+        {"texto": "3", "correta": false},
+        {"texto": "4", "correta": true}
+      ]
+    }
+  ]
+}

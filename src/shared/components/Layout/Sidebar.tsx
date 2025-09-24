@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, PlusCircle, Settings, LogOut, ChevronsLeft, ChevronsRight, Database, Calendar } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, Settings, LogOut, ChevronsLeft, ChevronsRight, Database, Calendar, FileText } from 'lucide-react';
 import { UserProfile } from '../../../features/auth/types';
 
 interface SidebarProps {
@@ -26,6 +26,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { to: '/nova-triagem', label: 'Nova Triagem', icon: PlusCircle },
     { to: '/banco-de-talentos', label: 'Banco de Talentos', icon: Database },
+    { to: '/provas-teoricas', label: 'Provas Teóricas', icon: FileText },
     { to: '/agenda', label: 'Agenda', icon: Calendar },
     { to: '/configuracoes', label: 'Configurações', icon: Settings }
   ];

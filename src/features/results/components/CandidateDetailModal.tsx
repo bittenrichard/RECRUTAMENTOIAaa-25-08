@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { X, User, Star, Briefcase, FileText, Download, CalendarPlus, ChevronDown, RefreshCcw, Mail, Copy, Check, BrainCircuit, UploadCloud, Video, Loader2, ClipboardList, MessageCircle, AlertCircle } from 'lucide-react';
+import { X, User, Star, Briefcase, FileText, Download, CalendarPlus, ChevronDown, RefreshCcw, Mail, Copy, Check, BrainCircuit, UploadCloud, Video, Loader2, ClipboardList, MessageCircle, AlertCircle, BookOpen } from 'lucide-react';
 import { Candidate, CandidateStatus } from '../../../shared/types/index';
 import { useAuth } from '../../auth/hooks/useAuth';
 import ProfileChart from '../../behavioral/components/ProfileChart';
@@ -16,8 +16,11 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
   const { profile } = useAuth();
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [isGeneratingLink, setIsGeneratingLink] = useState(false);
+  const [isGeneratingTheoreticalLink, setIsGeneratingTheoreticalLink] = useState(false);
   const [generatedLink, setGeneratedLink] = useState<string | null>(null);
+  const [generatedTheoreticalLink, setGeneratedTheoreticalLink] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [copyTheoreticalSuccess, setCopyTheoreticalSuccess] = useState(false);
   const [isUploading, setIsUploading] = useState< 'video' | 'test' | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
@@ -89,6 +92,28 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
     }
   };
 
+  const handleGenerateTheoreticalTestLink = async () => {
+    if (!profile || !candidate) return;
+    setIsGeneratingTheoreticalLink(true);
+    try {
+        const response = await fetch(`/api/theoretical-tests/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ candidateId: candidate.id, recruiterId: profile.id }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || 'Falha ao gerar o link do teste teórico.');
+        
+        const link = `${window.location.origin}/teste-teorico/${data.testId}`;
+        setGeneratedTheoreticalLink(link);
+    } catch (error: unknown) {
+        console.error("Erro ao gerar link do teste teórico:", error);
+        alert("Não foi possível gerar o link do teste teórico. Tente novamente.");
+    } finally {
+        setIsGeneratingTheoreticalLink(false);
+    }
+  };
+
   const handleCopyLink = () => {
     if (!generatedLink) return;
     navigator.clipboard.writeText(generatedLink).then(() => {
@@ -97,8 +122,17 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
     });
   };
 
+  const handleCopyTheoreticalLink = () => {
+    if (!generatedTheoreticalLink) return;
+    navigator.clipboard.writeText(generatedTheoreticalLink).then(() => {
+        setCopyTheoreticalSuccess(true);
+        setTimeout(() => setCopyTheoreticalSuccess(false), 2000);
+    });
+  };
+
   const handleClose = () => {
     setGeneratedLink(null);
+    setGeneratedTheoreticalLink(null);
     onClose();
   };
 
@@ -259,12 +293,25 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
             
           {generatedLink && (
               <div className="bg-indigo-50 border-l-4 border-indigo-500 p-4 rounded-r-lg">
-                  <h4 className="text-lg font-bold text-indigo-800">Link Gerado!</h4>
+                  <h4 className="text-lg font-bold text-indigo-800">Link do Teste Comportamental Gerado!</h4>
                   <p className="text-indigo-700 mt-2 text-sm">Envie o link abaixo para o candidato.</p>
                   <div className="mt-4 flex items-center bg-white border border-gray-300 rounded-md p-2">
                       <input type="text" readOnly value={generatedLink} className="w-full text-sm text-gray-700 bg-transparent focus:outline-none" />
                       <button onClick={handleCopyLink} className={`p-2 rounded-md transition-colors ${copySuccess ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                           {copySuccess ? <Check size={18} /> : <Copy size={18} />}
+                      </button>
+                  </div>
+              </div>
+          )}
+
+          {generatedTheoreticalLink && (
+              <div className="bg-green-50 border-l-4 border-green-500 p-4 rounded-r-lg">
+                  <h4 className="text-lg font-bold text-green-800">Link do Teste Teórico Gerado!</h4>
+                  <p className="text-green-700 mt-2 text-sm">Envie o link abaixo para o candidato.</p>
+                  <div className="mt-4 flex items-center bg-white border border-gray-300 rounded-md p-2">
+                      <input type="text" readOnly value={generatedTheoreticalLink} className="w-full text-sm text-gray-700 bg-transparent focus:outline-none" />
+                      <button onClick={handleCopyTheoreticalLink} className={`p-2 rounded-md transition-colors ${copyTheoreticalSuccess ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                          {copyTheoreticalSuccess ? <Check size={18} /> : <Copy size={18} />}
                       </button>
                   </div>
               </div>
@@ -278,7 +325,14 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
                 <CalendarPlus size={16} /> Agendar
               </button>
             </div>
-             <button onClick={handleGenerateTestLink} disabled={isGeneratingLink} className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"><ClipboardList size={16} />{isGeneratingLink ? "Gerando..." : "Teste Comportamental"}</button>
+            <div className="w-full sm:w-auto flex flex-col sm:flex-row gap-2">
+              <button onClick={handleGenerateTestLink} disabled={isGeneratingLink} className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50">
+                <ClipboardList size={16} />{isGeneratingLink ? "Gerando..." : "Teste Comportamental"}
+              </button>
+              <button onClick={handleGenerateTheoreticalTestLink} disabled={isGeneratingTheoreticalLink} className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-green-600 text-white hover:bg-green-700 disabled:opacity-50">
+                <BookOpen size={16} />{isGeneratingTheoreticalLink ? "Gerando..." : "Teste Teórico"}
+              </button>
+            </div>
             <div className="relative w-full sm:w-auto">
               <button onClick={() => setShowStatusMenu(!showStatusMenu)} className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-gray-200 text-gray-800 hover:bg-gray-300">
                 <RefreshCcw size={16} /> Status: {candidate.status?.value || 'Triagem'} <ChevronDown size={16} className="ml-1" />

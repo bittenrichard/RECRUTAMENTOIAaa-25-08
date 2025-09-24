@@ -9,8 +9,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
-    # As variáveis de ambiente do backend (como tokens e segredos)
-    # devem ser configuradas diretamente na sua plataforma de deploy.
+    # ⚠️  IMPORTANTE: Configure as variáveis de ambiente no Portainer!
+    # Copie o conteúdo do arquivo PORTAINER_ENV_VARS.txt na seção 
+    # "Environment variables" do stack no Portainer.
     networks:
       - traefik_network
     deploy:

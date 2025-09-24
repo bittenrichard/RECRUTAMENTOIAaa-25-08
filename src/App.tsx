@@ -19,6 +19,7 @@ import SettingsPage from './features/settings/components/SettingsPage';
 import CandidateDatabasePage from './features/database/components/CandidateDatabasePage';
 import AgendaPage from './features/agenda/components/AgendaPage';
 import { PublicTestPage } from './features/behavioral/components';
+import { TheoreticalMainPage, TheoreticalTestPage } from './features/theoretical';
 import ProtectedRoute from './shared/components/Layout/ProtectedRoute';
 import MainLayout from './shared/components/Layout/MainLayout';
 
@@ -85,6 +86,7 @@ function App() {
                     <Route path="/vaga/:jobId/resultados" element={<ResultsPage />} />
                     <Route path="/configuracoes" element={<SettingsPage />} />
                     <Route path="/banco-de-talentos" element={<CandidateDatabasePage />} />
+                    <Route path="/provas-teoricas" element={<TheoreticalMainPage />} />
                     <Route path="/agenda" element={<AgendaPage />} />
                     <Route path="*" element={<Navigate to="/dashboard" replace />} />
                   </Routes>

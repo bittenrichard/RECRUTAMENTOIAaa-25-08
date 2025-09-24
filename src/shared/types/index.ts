@@ -52,3 +52,77 @@ export interface UserAutomationSettings {
   automacao_inativacao: boolean;
   periodo_inativacao_meses: number;
 }
+
+// ========================================
+// TIPOS - SISTEMA DE PROVAS TEÓRICAS
+// ========================================
+
+export type QuestionType = 'verdadeiro_falso' | 'dissertativa' | 'multipla_escolha';
+export type TestStatus = 'em_andamento' | 'finalizada' | 'expirada';
+
+export interface Question {
+  id?: string;
+  tipo: QuestionType;
+  enunciado: string;
+  opcoes?: string[]; // Para múltipla escolha
+  resposta_correta?: string; // Para verdadeiro/falso e múltipla escolha
+  pontuacao: number;
+}
+
+export interface TestModel {
+  id?: string;
+  nome: string;
+  descricao: string;
+  tempo_limite: number; // em minutos
+  questoes: Question[];
+  ativo: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface QuestionAnswer {
+  questao_id: string;
+  resposta: string;
+  pontuacao_obtida?: number;
+}
+
+export interface AppliedTest {
+  id?: string;
+  candidato_id: string;
+  modelo_prova_id: string;
+  questoes_respostas: QuestionAnswer[];
+  pontuacao_total?: number;
+  status: TestStatus;
+  data_inicio?: string;
+  data_finalizacao?: string;
+  tempo_restante?: number;
+}
+
+export interface CandidateQuestion extends Question {
+  resposta_candidato?: string;
+}
+
+export interface CandidateTestData {
+  id: string;
+  modelo_nome: string;
+  modelo_descricao: string;
+  tempo_limite: number;
+  tempo_restante: number;
+  questoes: CandidateQuestion[];
+  status: TestStatus;
+  data_inicio: string;
+}
+
+export interface TestResult {
+  id: string;
+  modelo_nome: string;
+  pontuacao_total: number;
+  status: TestStatus;
+  data_inicio: string;
+  data_finalizacao?: string;
+  tempo_restante?: number;
+}
+
+export interface TestSubmission {
+  respostas: { questao_id: string; resposta: string }[];
+}

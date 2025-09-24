@@ -47,6 +47,9 @@ COPY --from=builder /app/dist-server ./dist-server
 RUN chown -R nodeuser:nodeuser /app
 USER nodeuser
 
+# ✅ Configura variável de ambiente para produção
+ENV NODE_ENV=production
+
 # Expõe a porta em que a sua API está a ser executada.
 EXPOSE 3001
 

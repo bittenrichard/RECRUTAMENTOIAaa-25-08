@@ -3,10 +3,10 @@ import fetch from 'node-fetch';
 import FormData from 'form-data';
 const BASE_URL = 'https://dados.focoserv.com.br/api/database/rows/table';
 const FILE_UPLOAD_URL = 'https://dados.focoserv.com.br/api/user-files/upload-file/';
-const API_KEY = process.env.VITE_BASEROW_API_KEY;
+const API_KEY = process.env.BASEROW_API_TOKEN || process.env.VITE_BASEROW_API_KEY;
 const uploadFileRequestFromBuffer = async (fileBuffer, fileName, mimetype) => {
     if (!API_KEY) {
-        throw new Error("A chave da API do Baserow (VITE_BASEROW_API_KEY) não foi encontrada no ambiente do servidor.");
+        throw new Error("A chave da API do Baserow (BASEROW_API_TOKEN ou VITE_BASEROW_API_KEY) não foi encontrada no ambiente do servidor.");
     }
     const formData = new FormData();
     formData.append('file', fileBuffer, { filename: fileName, contentType: mimetype });
@@ -32,7 +32,7 @@ const uploadFileRequestFromBuffer = async (fileBuffer, fileName, mimetype) => {
 };
 const apiRequest = async (method, tableId, path = '', body) => {
     if (!API_KEY) {
-        const errorMessage = "A chave da API do Baserow (VITE_BASEROW_API_KEY) não foi encontrada no ambiente do servidor.";
+        const errorMessage = "A chave da API do Baserow (BASEROW_API_TOKEN ou VITE_BASEROW_API_KEY) não foi encontrada no ambiente do servidor.";
         console.error(errorMessage);
         throw new Error(errorMessage);
     }
@@ -71,6 +71,9 @@ export const baserowServer = {
     getRow: (tableId, rowId) => apiRequest('GET', tableId, `${rowId}/`),
     post: (tableId, data) => apiRequest('POST', tableId, ``, data),
     patch: (tableId, rowId, data) => apiRequest('PATCH', tableId, `${rowId}/`, data),
-    delete: (tableId, rowId) => apiRequest('DELETE', tableId, `${rowId}/`),
+    delete: (tableId, rowId) => {
+        console.log(`🗑️ Baserow DELETE - Table: ${tableId}, Row: ${rowId}`);
+        return apiRequest('DELETE', tableId, `${rowId}/`);
+    },
     uploadFileFromBuffer: uploadFileRequestFromBuffer,
 };

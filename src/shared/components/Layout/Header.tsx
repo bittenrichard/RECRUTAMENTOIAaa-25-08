@@ -16,6 +16,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu }) => {
     if (path.includes('/resultados')) return 'Resultados da Triagem';
     if (path.includes('/editar')) return 'Editar Vaga';
     if (path.startsWith('/banco-de-talentos')) return 'Banco de Talentos';
+    if (path.startsWith('/provas-teoricas')) return 'Provas Teóricas';
     if (path.startsWith('/agenda')) return 'Agenda';
     if (path.startsWith('/configuracoes')) return 'Configurações';
     return 'Recruta.AI';
