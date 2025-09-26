@@ -69,7 +69,7 @@ const corsOptions = {
     : '*',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id'] // Adicionar header para sistema de usuários
 };
 app.use(cors(corsOptions));
 
@@ -1343,8 +1343,21 @@ app.get('/api/public/theoretical-test/:testId', async (req: Request, res: Respon
       return res.status(404).json({ error: 'Prova não encontrada.' });
     }
     
-    // Verificar se a prova ainda está ativa (false = finalizada)
-    if (appliedTest.status === false) {
+    console.log(`[Public Theoretical Test] Status da prova:`, appliedTest.status);
+    console.log(`[Public Theoretical Test] Tipo do status:`, typeof appliedTest.status);
+    
+    // Verificar se a prova ainda está ativa (Concluído = finalizada)
+    let isCompleted = false;
+    
+    if (typeof appliedTest.status === 'string' && appliedTest.status === 'Concluído') {
+      isCompleted = true;
+    } else if (appliedTest.status && typeof appliedTest.status === 'object' && appliedTest.status.value === 'Concluído') {
+      isCompleted = true;
+    }
+    
+    console.log(`[Public Theoretical Test] Prova já completada:`, isCompleted);
+    
+    if (isCompleted) {
       return res.status(400).json({ 
         error: 'Esta prova já foi respondida anteriormente e não pode ser feita novamente.',
         already_completed: true 
@@ -1411,20 +1424,29 @@ app.get('/api/public/theoretical-test/:testId', async (req: Request, res: Respon
 
 // PATCH /api/theoretical-test/submit - Submeter respostas da prova (similar ao comportamental)
 app.patch('/api/theoretical-test/submit', async (req: Request, res: Response) => {
+  console.log(`[Theoretical Test SUBMIT] === INICIO DA REQUISIÇÃO ===`);
+  console.log(`[Theoretical Test SUBMIT] Headers:`, req.headers);
+  console.log(`[Theoretical Test SUBMIT] Body:`, req.body);
+  
   const { testId, responses } = req.body;
   
+  console.log(`[Theoretical Test SUBMIT] Dados extraídos - testId: ${testId}, responses:`, responses);
+  
   if (!testId || !responses) {
+    console.log(`[Theoretical Test SUBMIT] ERRO: Dados obrigatórios faltando - testId: ${!!testId}, responses: ${!!responses}`);
     return res.status(400).json({ error: 'ID da prova e respostas são obrigatórios.' });
   }
   
   try {
-    console.log(`[Theoretical Test] Submetendo respostas para prova ${testId}`);
-    console.log(`[Theoretical Test] Responses recebidas:`, responses);
+    console.log(`[Theoretical Test SUBMIT] Iniciando busca da prova ${testId}`);
+    console.log(`[Theoretical Test SUBMIT] Table ID: ${PROVAS_TEORICAS_APLICADAS_TABLE_ID}`);
     
     // Buscar a prova
     const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+    console.log(`[Theoretical Test SUBMIT] Resultado da busca:`, appliedTest ? 'ENCONTRADA' : 'NÃO ENCONTRADA');
+    
     if (!appliedTest) {
-      console.log(`[Theoretical Test] Prova ${testId} não encontrada no banco`);
+      console.log(`[Theoretical Test SUBMIT] ERRO: Prova ${testId} não encontrada no banco`);
       return res.status(404).json({ error: 'Prova não encontrada.' });
     }
     
@@ -1434,8 +1456,8 @@ app.patch('/api/theoretical-test/submit', async (req: Request, res: Response) =>
       modelo_da_prova: appliedTest.modelo_da_prova
     });
     
-    // Verificar se ainda está ativa (false = finalizada)
-    if (appliedTest.status === false) {
+    // Verificar se ainda está ativa (Concluído = finalizada)
+    if (appliedTest.status && (appliedTest.status.value === 'Concluído' || appliedTest.status === 'Concluído')) {
       return res.status(400).json({ 
         error: 'Esta prova já foi respondida anteriormente e não pode ser feita novamente.',
         already_completed: true 
@@ -1473,15 +1495,38 @@ app.patch('/api/theoretical-test/submit', async (req: Request, res: Response) =>
       }
     }
     
+    console.log(`[Theoretical Test SUBMIT] Preparando dados para atualização:`);
+    console.log(`[Theoretical Test SUBMIT] - Pontuação total: ${pontuacaoTotal}`);
+    console.log(`[Theoretical Test SUBMIT] - Responses JSON:`, JSON.stringify(responses));
+    
     // Atualizar a prova com as respostas e pontuação
-    await baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId), {
+    console.log(`[Theoretical Test SUBMIT] Iniciando atualização da prova ${testId}`);
+    
+    console.log(`[Theoretical Test SUBMIT] Status atual da prova:`, appliedTest.status);
+    
+    // Agora atualizando para "Concluído" conforme opções do Baserow
+    const updateData = {
       data_de_resposta: new Date().toISOString(),
       respostas_candidato: JSON.stringify(responses),
       pontuacao_total: pontuacaoTotal,
-      status: false, // Boolean: false = finalizada
-    });
+      status: 'Concluído', // Usar valor correto do Baserow
+    };
     
-    console.log(`[Theoretical Test] Prova ${testId} submetida com sucesso`);
+    console.log(`[Theoretical Test SUBMIT] Dados de atualização:`, updateData);
+    
+    let updateResult;
+    try {
+      updateResult = await baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId), updateData);
+      console.log(`[Theoretical Test SUBMIT] Resultado da atualização:`, updateResult ? 'SUCESSO' : 'FALHA');
+      console.log(`[Theoretical Test SUBMIT] Prova ${testId} submetida com sucesso`);
+    } catch (updateError: unknown) {
+      console.error(`[Theoretical Test SUBMIT] ERRO na atualização da prova:`, updateError);
+      if (updateError instanceof Error) {
+        console.error(`[Theoretical Test SUBMIT] Detalhes do erro:`, updateError.message);
+        console.error(`[Theoretical Test SUBMIT] Stack trace:`, updateError.stack);
+      }
+      throw updateError; // Re-throw para ser capturado pelo catch principal
+    }
     
     // Disparar webhook para N8N (se configurado)
     if (N8N_THEORETICAL_WEBHOOK_URL) {
@@ -1495,9 +1540,9 @@ app.patch('/api/theoretical-test/submit', async (req: Request, res: Response) =>
             responses 
           }),
         });
-        console.log(`[Theoretical Test] Webhook enviado para N8N`);
+        console.log(`[Theoretical Test SUBMIT] Webhook enviado para N8N`);
       } catch (webhookError) {
-        console.error(`[Theoretical Test] Erro no webhook:`, webhookError);
+        console.error(`[Theoretical Test SUBMIT] Erro no webhook:`, webhookError);
       }
     }
     
@@ -1506,7 +1551,13 @@ app.patch('/api/theoretical-test/submit', async (req: Request, res: Response) =>
       message: 'Prova submetida com sucesso! Obrigado por participar. Em breve entraremos em contato com o resultado.'
     });
   } catch (error: unknown) {
-    console.error(`[Theoretical Test] Erro ao submeter prova:`, error);
+    console.error(`[Theoretical Test SUBMIT] === ERRO GERAL ===`);
+    console.error(`[Theoretical Test SUBMIT] Erro ao submeter prova:`, error);
+    if (error instanceof Error) {
+      console.error(`[Theoretical Test SUBMIT] Mensagem do erro:`, error.message);
+      console.error(`[Theoretical Test SUBMIT] Stack trace:`, error.stack);
+    }
+    console.error(`[Theoretical Test SUBMIT] === FIM ERRO ===`);
     res.status(500).json({ error: 'Erro ao submeter a prova.' });
   }
 });
@@ -1606,7 +1657,7 @@ app.get('/api/theoretical-test/check/:candidateId', async (req: Request, res: Re
 app.get('/api/theoretical-models', async (req: Request, res: Response) => {
   try {
     // Pegar o ID do usuário dos headers ou query params
-    const userId = req.headers['x-user-id'] || req.query.userId || '1'; // Default para usuário 1
+    const userId = req.headers['x-user-id'] || req.query.userId || '2'; // Default para usuário 2
     
     console.log('🔍 Buscando modelos para usuário:', userId);
     console.log('🔍 Buscando modelos na tabela:', PROVAS_TEORICAS_MODELOS_TABLE_ID);
@@ -2096,8 +2147,8 @@ app.get('/api/theoretical-test/:candidateId', async (req: Request, res: Response
 
     const appliedTest = results[0];
     
-    // Verificar se a prova já foi respondida (false = finalizada)
-    if (appliedTest.status === false) {
+    // Verificar se a prova já foi respondida (Concluído = finalizada)
+    if (appliedTest.status && (appliedTest.status.value === 'Concluído' || appliedTest.status === 'Concluído')) {
       return res.status(400).json({ 
         error: 'Esta prova já foi respondida e não pode ser feita novamente.',
         already_completed: true 
@@ -2164,7 +2215,7 @@ app.put('/api/theoretical-test/:testId/submit', async (req: Request, res: Respon
       return res.status(404).json({ error: 'Prova não encontrada.' });
     }
 
-    if (appliedTest.status === false) {
+    if (appliedTest.status && (appliedTest.status.value === 'Concluído' || appliedTest.status === 'Concluído')) {
       return res.status(400).json({ error: 'Esta prova não está mais em andamento.' });
     }
 
@@ -2382,10 +2433,12 @@ app.get('/api/theoretical-test/review/:testId', async (req: Request, res: Respon
   }
   
   try {
-    console.log(`[Theoretical Test] Buscando gabarito da prova ${testId}`);
+    console.log(`[Theoretical Test REVIEW] Buscando gabarito da prova ${testId}`);
+    console.log(`[Theoretical Test REVIEW] Table ID: ${PROVAS_TEORICAS_APLICADAS_TABLE_ID}`);
     
     // Buscar a prova aplicada
     const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+    console.log(`[Theoretical Test REVIEW] Prova encontrada:`, !!appliedTest);
     if (!appliedTest) {
       return res.status(404).json({ error: 'Prova não encontrada.' });
     }

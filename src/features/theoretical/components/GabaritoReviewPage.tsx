@@ -33,8 +33,13 @@ interface GabaritoData {
   candidateAnswers: CandidateAnswer[];
 }
 
-const GabaritoReviewPage: React.FC = () => {
-  const { testId } = useParams<{ testId: string }>();
+interface GabaritoReviewPageProps {
+  testId?: string;
+}
+
+const GabaritoReviewPage: React.FC<GabaritoReviewPageProps> = ({ testId: propTestId }) => {
+  const { testId: paramTestId } = useParams<{ testId: string }>();
+  const testId = propTestId || paramTestId;
   const [gabaritoData, setGabaritoData] = useState<GabaritoData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

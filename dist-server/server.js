@@ -1,23 +1,28 @@
+"use strict";
 // Caminho: server.ts
 // SUBSTITUA O CONTEÚDO INTEIRO DESTE ARQUIVO
-import dotenv from 'dotenv';
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const dotenv_1 = __importDefault(require("dotenv"));
 // Carrega primeiro o .env padrão
-dotenv.config({ path: '.env' });
+dotenv_1.default.config({ path: '.env' });
 // Depois carrega o específico do ambiente, sobrescrevendo se necessário
-dotenv.config({ path: `.env.${process.env.NODE_ENV || 'development'}`, override: false });
-import express from 'express';
-import cors from 'cors';
-import crypto from 'crypto';
-import { google } from 'googleapis';
-import { baserowServer } from './src/shared/services/baserowServerClient.js';
-import fetch from 'node-fetch';
-import bcrypt from 'bcryptjs';
-import multer from 'multer';
-const app = express();
+dotenv_1.default.config({ path: `.env.${process.env.NODE_ENV || 'development'}`, override: false });
+const express_1 = __importDefault(require("express"));
+const cors_1 = __importDefault(require("cors"));
+const crypto_1 = __importDefault(require("crypto"));
+const googleapis_1 = require("googleapis");
+const baserowServerClient_js_1 = require("./src/shared/services/baserowServerClient.js");
+const node_fetch_1 = __importDefault(require("node-fetch"));
+const bcryptjs_1 = __importDefault(require("bcryptjs"));
+const multer_1 = __importDefault(require("multer"));
+const app = (0, express_1.default)();
 const port = process.env.PORT || 3001;
 // Configuração do Multer para upload de ficheiros em memória
-const storage = multer.memoryStorage();
-const upload = multer({
+const storage = multer_1.default.memoryStorage();
+const upload = (0, multer_1.default)({
     storage,
     limits: {
         fileSize: 100 * 1024 * 1024, // 100MB para vídeos
@@ -31,15 +36,15 @@ const corsOptions = {
         : '*',
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id'] // Adicionar header para sistema de usuários
 };
-app.use(cors(corsOptions));
+app.use((0, cors_1.default)(corsOptions));
 // Configurações de segurança para produção
 if (process.env.NODE_ENV === 'production') {
     app.set('trust proxy', process.env.TRUST_PROXY === 'true');
 }
-app.use(express.json({ limit: '100mb' }));
-app.use(express.urlencoded({ extended: true, limit: '100mb' }));
+app.use(express_1.default.json({ limit: '100mb' }));
+app.use(express_1.default.urlencoded({ extended: true, limit: '100mb' }));
 // Configuração de credenciais OAuth baseada no ambiente
 const isDevelopment = process.env.NODE_ENV === 'development';
 const GOOGLE_CLIENT_ID = isDevelopment ?
@@ -79,7 +84,7 @@ if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REDIRECT_URI) {
     console.error("Verifique as variáveis de ambiente no arquivo .env");
     // process.exit(1); // Removido para permitir desenvolvimento
 }
-const oauth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI);
+const oauth2Client = new googleapis_1.google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI);
 const USERS_TABLE_ID = '711';
 const VAGAS_TABLE_ID = '709';
 const CANDIDATOS_TABLE_ID = '710';
@@ -101,12 +106,12 @@ app.post('/api/auth/signup', async (req, res) => {
     }
     try {
         const emailLowerCase = email.toLowerCase();
-        const { results: existingUsers } = await baserowServer.get(USERS_TABLE_ID, `?filter__Email__equal=${emailLowerCase}`);
+        const { results: existingUsers } = await baserowServerClient_js_1.baserowServer.get(USERS_TABLE_ID, `?filter__Email__equal=${emailLowerCase}`);
         if (existingUsers && existingUsers.length > 0) {
             return res.status(409).json({ error: 'Este e-mail já está cadastrado.' });
         }
-        const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
-        const newUser = await baserowServer.post(USERS_TABLE_ID, {
+        const hashedPassword = await bcryptjs_1.default.hash(password, SALT_ROUNDS);
+        const newUser = await baserowServerClient_js_1.baserowServer.post(USERS_TABLE_ID, {
             nome,
             empresa,
             telefone,
@@ -136,12 +141,12 @@ app.post('/api/auth/login', async (req, res) => {
     }
     try {
         const emailLowerCase = email.toLowerCase();
-        const { results: users } = await baserowServer.get(USERS_TABLE_ID, `?filter__Email__equal=${emailLowerCase}`);
+        const { results: users } = await baserowServerClient_js_1.baserowServer.get(USERS_TABLE_ID, `?filter__Email__equal=${emailLowerCase}`);
         const user = users && users[0];
         if (!user || !user.senha_hash) {
             return res.status(401).json({ error: 'E-mail ou senha inválidos.' });
         }
-        const passwordMatches = await bcrypt.compare(password, user.senha_hash);
+        const passwordMatches = await bcryptjs_1.default.compare(password, user.senha_hash);
         if (passwordMatches) {
             const userProfile = {
                 id: user.id,
@@ -172,23 +177,23 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     try {
         const emailLowerCase = email.toLowerCase();
         // 1. Buscar usuário no Baserow Users (711)
-        const { results: users } = await baserowServer.get(USERS_TABLE_ID, `?filter__Email__equal=${emailLowerCase}`);
+        const { results: users } = await baserowServerClient_js_1.baserowServer.get(USERS_TABLE_ID, `?filter__Email__equal=${emailLowerCase}`);
         const user = users && users[0];
         if (!user) {
             return res.status(404).json({ error: 'Email não encontrado.' });
         }
         // 2. Gerar token único
-        const resetToken = crypto.randomBytes(32).toString('hex');
+        const resetToken = crypto_1.default.randomBytes(32).toString('hex');
         const resetExpires = new Date(Date.now() + 3600000); // 1 hora
         // 3. Salvar no Baserow
-        await baserowServer.patch(USERS_TABLE_ID, user.id, {
+        await baserowServerClient_js_1.baserowServer.patch(USERS_TABLE_ID, user.id, {
             reset_token: resetToken,
             reset_expires: resetExpires.toISOString()
         });
         // 4. Disparar N8N webhook para envio de email (se configurado)
         if (N8N_EMAIL_WEBHOOK_URL) {
             try {
-                await fetch(N8N_EMAIL_WEBHOOK_URL, {
+                await (0, node_fetch_1.default)(N8N_EMAIL_WEBHOOK_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -224,15 +229,15 @@ app.post('/api/auth/reset-password', async (req, res) => {
     try {
         // 1. Validar token no Baserow
         const now = new Date().toISOString();
-        const { results: users } = await baserowServer.get(USERS_TABLE_ID, `?filter__reset_token__equal=${token}&filter__reset_expires__date_after=${now}`);
+        const { results: users } = await baserowServerClient_js_1.baserowServer.get(USERS_TABLE_ID, `?filter__reset_token__equal=${token}&filter__reset_expires__date_after=${now}`);
         const user = users && users[0];
         if (!user) {
             return res.status(400).json({ error: 'Token inválido ou expirado.' });
         }
         // 2. Hash nova senha
-        const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
+        const hashedPassword = await bcryptjs_1.default.hash(newPassword, SALT_ROUNDS);
         // 3. Atualizar no Baserow
-        await baserowServer.patch(USERS_TABLE_ID, user.id, {
+        await baserowServerClient_js_1.baserowServer.patch(USERS_TABLE_ID, user.id, {
             senha_hash: hashedPassword,
             reset_token: null,
             reset_expires: null
@@ -262,7 +267,7 @@ app.patch('/api/users/:userId/profile', async (req, res) => {
         if (Object.keys(updatedData).length === 0) {
             return res.status(400).json({ error: 'Nenhum dado para atualizar.' });
         }
-        const updatedUser = await baserowServer.patch(USERS_TABLE_ID, parseInt(userId), updatedData);
+        const updatedUser = await baserowServerClient_js_1.baserowServer.patch(USERS_TABLE_ID, parseInt(userId), updatedData);
         const userProfile = {
             id: updatedUser.id,
             nome: updatedUser.nome,
@@ -289,8 +294,8 @@ app.patch('/api/users/:userId/password', async (req, res) => {
         return res.status(400).json({ error: 'A senha deve ter no mínimo 6 caracteres.' });
     }
     try {
-        const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
-        await baserowServer.patch(USERS_TABLE_ID, parseInt(userId), { senha_hash: hashedPassword });
+        const hashedPassword = await bcryptjs_1.default.hash(password, SALT_ROUNDS);
+        await baserowServerClient_js_1.baserowServer.patch(USERS_TABLE_ID, parseInt(userId), { senha_hash: hashedPassword });
         res.json({ success: true, message: 'Senha atualizada com sucesso!' });
     }
     catch (error) {
@@ -304,7 +309,7 @@ app.get('/api/users/:userId', async (req, res) => {
         return res.status(400).json({ error: 'ID do usuário é obrigatório.' });
     }
     try {
-        const user = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+        const user = await baserowServerClient_js_1.baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
         if (!user) {
             return res.status(404).json({ error: 'Usuário não encontrado.' });
         }
@@ -333,9 +338,9 @@ app.post('/api/upload-avatar', upload.single('avatar'), async (req, res) => {
         const fileBuffer = req.file.buffer;
         const fileName = req.file.originalname;
         const mimetype = req.file.mimetype;
-        const uploadedFile = await baserowServer.uploadFileFromBuffer(fileBuffer, fileName, mimetype);
+        const uploadedFile = await baserowServerClient_js_1.baserowServer.uploadFileFromBuffer(fileBuffer, fileName, mimetype);
         const newAvatarUrl = uploadedFile.url;
-        const updatedUser = await baserowServer.patch(USERS_TABLE_ID, parseInt(userId), { avatar_url: newAvatarUrl });
+        const updatedUser = await baserowServerClient_js_1.baserowServer.patch(USERS_TABLE_ID, parseInt(userId), { avatar_url: newAvatarUrl });
         const userProfile = {
             id: updatedUser.id,
             nome: updatedUser.nome,
@@ -358,7 +363,7 @@ app.post('/api/jobs', async (req, res) => {
         return res.status(400).json({ error: 'Título, descrição e ID do usuário são obrigatórios.' });
     }
     try {
-        const createdJob = await baserowServer.post(VAGAS_TABLE_ID, {
+        const createdJob = await baserowServerClient_js_1.baserowServer.post(VAGAS_TABLE_ID, {
             titulo,
             descricao,
             Endereco: endereco,
@@ -380,7 +385,7 @@ app.patch('/api/jobs/:jobId', async (req, res) => {
         return res.status(400).json({ error: 'ID da vaga e dados para atualização são obrigatórios.' });
     }
     try {
-        const updatedJob = await baserowServer.patch(VAGAS_TABLE_ID, parseInt(jobId), updatedData);
+        const updatedJob = await baserowServerClient_js_1.baserowServer.patch(VAGAS_TABLE_ID, parseInt(jobId), updatedData);
         res.json(updatedJob);
     }
     catch (error) {
@@ -394,7 +399,7 @@ app.delete('/api/jobs/:jobId', async (req, res) => {
         return res.status(400).json({ error: 'ID da vaga é obrigatório.' });
     }
     try {
-        await baserowServer.delete(VAGAS_TABLE_ID, parseInt(jobId));
+        await baserowServerClient_js_1.baserowServer.delete(VAGAS_TABLE_ID, parseInt(jobId));
         res.status(204).send();
     }
     catch (error) {
@@ -439,7 +444,7 @@ app.patch('/api/candidates/:candidateId/status', async (req, res) => {
         return res.status(400).json({ error: 'Status fornecido é inválido.' });
     }
     try {
-        const updatedCandidate = await baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), { status: status });
+        const updatedCandidate = await baserowServerClient_js_1.baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), { status: status });
         res.json(updatedCandidate);
     }
     catch (error) {
@@ -468,10 +473,10 @@ app.post('/api/candidates/:candidateId/video-interview', upload.single('video'),
     }
     try {
         console.log(`[Upload Video] Processando upload para candidato ${candidateId}, arquivo: ${file.originalname}, tamanho: ${file.size} bytes`);
-        const uploadedFileData = await baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
+        const uploadedFileData = await baserowServerClient_js_1.baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
         console.log(`[Upload Video] Arquivo enviado para Baserow:`, uploadedFileData);
         // Atualiza a linha do candidato com o ficheiro de vídeo
-        const updatedCandidate = await baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), {
+        const updatedCandidate = await baserowServerClient_js_1.baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), {
             video_entrevista: [{ name: uploadedFileData.name, url: uploadedFileData.url }],
         });
         console.log(`[Upload Video] Candidato atualizado com sucesso`);
@@ -496,10 +501,10 @@ app.post('/api/candidates/:candidateId/theoretical-test', upload.single('testRes
         return res.status(400).json({ error: 'Nenhum ficheiro de resultado foi enviado.' });
     }
     try {
-        const uploadedFileData = await baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
+        const uploadedFileData = await baserowServerClient_js_1.baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
         // Atualiza a linha do candidato com o resultado do teste
         // O nome do campo deve ser EXATAMENTE o mesmo que está no Baserow: `resultado_teste_teorico`
-        const updatedCandidate = await baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), {
+        const updatedCandidate = await baserowServerClient_js_1.baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), {
             resultado_teste_teorico: [{ name: uploadedFileData.name, url: uploadedFileData.url }],
         });
         res.status(200).json({
@@ -521,7 +526,7 @@ app.patch('/api/candidates/:candidateId/update-contact', async (req, res) => {
     }
     try {
         // Atualiza o campo ultima_atualizacao com a data atual
-        const updatedCandidate = await baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), {
+        const updatedCandidate = await baserowServerClient_js_1.baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), {
             ultima_atualizacao: new Date().toISOString(),
         });
         res.status(200).json({
@@ -543,13 +548,13 @@ app.get('/api/data/all/:userId', async (req, res) => {
         return res.status(400).json({ error: 'ID do usuário é obrigatório.' });
     }
     try {
-        const jobsResult = await baserowServer.get(VAGAS_TABLE_ID, '');
+        const jobsResult = await baserowServerClient_js_1.baserowServer.get(VAGAS_TABLE_ID, '');
         const allJobs = (jobsResult.results || []);
         const userJobs = allJobs.filter((job) => job.usuario && job.usuario.some((user) => user.id === parseInt(userId)));
         const userJobIds = new Set(userJobs.map(job => job.id));
         const jobsMapByTitle = new Map(userJobs.map((job) => [job.titulo.toLowerCase().trim(), job]));
         const jobsMapById = new Map(userJobs.map((job) => [job.id, job]));
-        const behavioralTestsResult = await baserowServer.get(TESTE_COMPORTAMENTAL_TABLE_ID, `?filter__recrutador__link_row_has=${userId}`);
+        const behavioralTestsResult = await baserowServerClient_js_1.baserowServer.get(TESTE_COMPORTAMENTAL_TABLE_ID, `?filter__recrutador__link_row_has=${userId}`);
         const allBehavioralTests = behavioralTestsResult.results || [];
         const behavioralTestMap = new Map();
         allBehavioralTests.forEach(test => {
@@ -558,8 +563,8 @@ app.get('/api/data/all/:userId', async (req, res) => {
                 behavioralTestMap.set(candidateId, test);
             }
         });
-        const regularCandidatesResult = await baserowServer.get(CANDIDATOS_TABLE_ID, '');
-        const whatsappCandidatesResult = await baserowServer.get(WHATSAPP_CANDIDATOS_TABLE_ID, '');
+        const regularCandidatesResult = await baserowServerClient_js_1.baserowServer.get(CANDIDATOS_TABLE_ID, '');
+        const whatsappCandidatesResult = await baserowServerClient_js_1.baserowServer.get(WHATSAPP_CANDIDATOS_TABLE_ID, '');
         const allCandidatesRaw = [
             ...(regularCandidatesResult.results || []),
             ...(whatsappCandidatesResult.results || [])
@@ -624,7 +629,7 @@ app.post('/api/upload-curriculums', upload.array('curriculumFiles'), async (req,
             if (file.size > 5 * 1024 * 1024) {
                 return res.status(400).json({ success: false, message: `O arquivo '${file.originalname}' é muito grande. O limite é de 5MB.` });
             }
-            const uploadedFile = await baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
+            const uploadedFile = await baserowServerClient_js_1.baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
             const newCandidateData = {
                 nome: file.originalname.split('.')[0] || 'Novo Candidato',
                 curriculo: [{ name: uploadedFile.name, url: uploadedFile.url }],
@@ -634,11 +639,11 @@ app.post('/api/upload-curriculums', upload.array('curriculumFiles'), async (req,
                 resumo_ia: null,
                 status: 'Triagem',
             };
-            const createdCandidate = await baserowServer.post(CANDIDATOS_TABLE_ID, newCandidateData);
+            const createdCandidate = await baserowServerClient_js_1.baserowServer.post(CANDIDATOS_TABLE_ID, newCandidateData);
             newCandidateEntries.push(createdCandidate);
         }
-        const jobInfo = await baserowServer.getRow(VAGAS_TABLE_ID, parseInt(jobId));
-        const userInfo = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+        const jobInfo = await baserowServerClient_js_1.baserowServer.getRow(VAGAS_TABLE_ID, parseInt(jobId));
+        const userInfo = await baserowServerClient_js_1.baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
         if (N8N_TRIAGEM_WEBHOOK_URL && newCandidateEntries.length > 0 && jobInfo && userInfo) {
             const candidatosParaWebhook = newCandidateEntries.map(candidate => ({
                 id: candidate.id,
@@ -654,7 +659,7 @@ app.post('/api/upload-curriculums', upload.array('curriculumFiles'), async (req,
                 vaga: { id: jobInfo.id, titulo: jobInfo.titulo, descricao: jobInfo.descricao, endereco: jobInfo.Endereco, requisitos_obrigatorios: jobInfo.requisitos_obrigatorios, requisitos_desejaveis: jobInfo.requisitos_desejaveis },
                 candidatos: candidatosParaWebhook
             };
-            const n8nResponse = await fetch(N8N_TRIAGEM_WEBHOOK_URL, {
+            const n8nResponse = await (0, node_fetch_1.default)(N8N_TRIAGEM_WEBHOOK_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(webhookPayload)
@@ -699,7 +704,7 @@ app.post('/api/upload', upload.any(), async (req, res) => {
             // Converter arquivo para base64
             const base64Content = file.buffer.toString('base64');
             console.log(`[UPLOAD DEBUG] Base64 gerado para ${file.originalname}, tamanho: ${base64Content.length} chars`);
-            const uploadedFile = await baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
+            const uploadedFile = await baserowServerClient_js_1.baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
             const newCandidateData = {
                 nome: file.originalname.split('.')[0] || 'Novo Candidato',
                 curriculo: [{ name: uploadedFile.name, url: uploadedFile.url }],
@@ -709,7 +714,7 @@ app.post('/api/upload', upload.any(), async (req, res) => {
                 resumo_ia: null,
                 status: 'Triagem',
             };
-            const createdCandidate = await baserowServer.post(CANDIDATOS_TABLE_ID, newCandidateData);
+            const createdCandidate = await baserowServerClient_js_1.baserowServer.post(CANDIDATOS_TABLE_ID, newCandidateData);
             newCandidateEntries.push(createdCandidate);
             // Armazenar arquivo com base64 para o webhook
             filesWithBase64.push({
@@ -720,8 +725,8 @@ app.post('/api/upload', upload.any(), async (req, res) => {
                 candidateId: createdCandidate.id
             });
         }
-        const jobInfo = await baserowServer.getRow(VAGAS_TABLE_ID, parseInt(jobId));
-        const userInfo = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+        const jobInfo = await baserowServerClient_js_1.baserowServer.getRow(VAGAS_TABLE_ID, parseInt(jobId));
+        const userInfo = await baserowServerClient_js_1.baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
         if (N8N_TRIAGEM_WEBHOOK_URL && newCandidateEntries.length > 0 && jobInfo && userInfo) {
             const candidatosParaWebhook = newCandidateEntries.map(candidate => {
                 // Encontrar o arquivo base64 correspondente ao candidato
@@ -752,7 +757,7 @@ app.post('/api/upload', upload.any(), async (req, res) => {
                 vaga: { id: jobInfo.id, titulo: jobInfo.titulo, descricao: jobInfo.descricao, endereco: jobInfo.Endereco, requisitos_obrigatorios: jobInfo.requisitos_obrigatorios, requisitos_desejaveis: jobInfo.requisitos_desejaveis },
                 candidatos: candidatosParaWebhook
             };
-            const n8nResponse = await fetch(N8N_TRIAGEM_WEBHOOK_URL, {
+            const n8nResponse = await (0, node_fetch_1.default)(N8N_TRIAGEM_WEBHOOK_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(webhookPayload)
@@ -779,7 +784,7 @@ app.get('/api/schedules/:userId', async (req, res) => {
         return res.status(400).json({ error: 'ID do usuário é obrigatório.' });
     }
     try {
-        const { results } = await baserowServer.get(AGENDAMENTOS_TABLE_ID, `?filter__Candidato__usuario__link_row_has=${userId}`);
+        const { results } = await baserowServerClient_js_1.baserowServer.get(AGENDAMENTOS_TABLE_ID, `?filter__Candidato__usuario__link_row_has=${userId}`);
         res.json({ success: true, results: results || [] });
     }
     catch (error) {
@@ -824,7 +829,7 @@ app.get('/api/google/auth/callback', async (req, res) => {
         const { refresh_token } = tokens;
         if (refresh_token) {
             console.log('[Google Auth Callback] Salvando refresh_token para userId:', userId);
-            await baserowServer.patch(USERS_TABLE_ID, parseInt(userId), {
+            await baserowServerClient_js_1.baserowServer.patch(USERS_TABLE_ID, parseInt(userId), {
                 google_refresh_token: refresh_token
             });
             console.log('[Google Auth Callback] Refresh token salvo com sucesso');
@@ -843,7 +848,7 @@ app.get('/api/google/auth/callback', async (req, res) => {
 });
 app.post('/api/google/auth/disconnect', async (req, res) => {
     const { userId } = req.body;
-    await baserowServer.patch(USERS_TABLE_ID, parseInt(userId), { google_refresh_token: null });
+    await baserowServerClient_js_1.baserowServer.patch(USERS_TABLE_ID, parseInt(userId), { google_refresh_token: null });
     res.json({ success: true, message: 'Conta Google desconectada.' });
 });
 app.get('/api/google/auth/status', async (req, res) => {
@@ -851,7 +856,7 @@ app.get('/api/google/auth/status', async (req, res) => {
     if (!userId)
         return res.status(400).json({ error: 'userId é obrigatório' });
     try {
-        const userResponse = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+        const userResponse = await baserowServerClient_js_1.baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
         const isConnected = !!userResponse.google_refresh_token;
         res.json({ isConnected });
     }
@@ -866,13 +871,13 @@ app.post('/api/google/calendar/create-event', async (req, res) => {
         return res.status(400).json({ success: false, message: 'Dados insuficientes.' });
     }
     try {
-        const userResponse = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+        const userResponse = await baserowServerClient_js_1.baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
         const refreshToken = userResponse.google_refresh_token;
         if (!refreshToken) {
             return res.status(401).json({ success: false, message: 'Usuário não conectado ao Google Calendar. Por favor, conecte sua conta em "Configurações".' });
         }
         oauth2Client.setCredentials({ refresh_token: refreshToken });
-        const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+        const calendar = googleapis_1.google.calendar({ version: 'v3', auth: oauth2Client });
         const eventDescription = `Entrevista com o candidato: ${candidate.nome}.\n` +
             `Telefone: ${candidate.telefone || 'Não informado'}\n\n` +
             `--- Detalhes adicionais ---\n` +
@@ -887,7 +892,7 @@ app.post('/api/google/calendar/create-event', async (req, res) => {
         const response = await calendar.events.insert({
             calendarId: 'primary', requestBody: event,
         });
-        await baserowServer.post(AGENDAMENTOS_TABLE_ID, {
+        await baserowServerClient_js_1.baserowServer.post(AGENDAMENTOS_TABLE_ID, {
             'Título': eventData.title,
             'Início': eventData.start,
             'Fim': eventData.end,
@@ -904,7 +909,7 @@ app.post('/api/google/calendar/create-event', async (req, res) => {
                     details: eventData.details, googleEventLink: response.data.htmlLink
                 }
             };
-            fetch(process.env.N8N_SCHEDULE_WEBHOOK_URL, {
+            (0, node_fetch_1.default)(process.env.N8N_SCHEDULE_WEBHOOK_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(webhookPayload)
@@ -923,7 +928,7 @@ app.post('/api/google/calendar/create-event', async (req, res) => {
 app.get('/api/public/theoretical-models', async (req, res) => {
     try {
         console.log('🔍 [Public] Buscando modelos na tabela:', PROVAS_TEORICAS_MODELOS_TABLE_ID);
-        const response = await baserowServer.get(PROVAS_TEORICAS_MODELOS_TABLE_ID);
+        const response = await baserowServerClient_js_1.baserowServer.get(PROVAS_TEORICAS_MODELOS_TABLE_ID);
         if (!response.results || !Array.isArray(response.results)) {
             console.log('⚠️ Nenhum resultado encontrado ou formato inválido');
             return res.json({ success: true, data: [] });
@@ -965,7 +970,7 @@ app.post('/api/behavioral-test/generate', async (req, res) => {
     }
     try {
         console.log(`[Behavioral Test] Criando entrada na tabela ${TESTE_COMPORTAMENTAL_TABLE_ID}`);
-        const newTestEntry = await baserowServer.post(TESTE_COMPORTAMENTAL_TABLE_ID, {
+        const newTestEntry = await baserowServerClient_js_1.baserowServer.post(TESTE_COMPORTAMENTAL_TABLE_ID, {
             candidato: [parseInt(candidateId)],
             recrutador: [parseInt(recruiterId)],
             status: 'Pendente',
@@ -984,7 +989,7 @@ app.patch('/api/behavioral-test/submit', async (req, res) => {
         return res.status(400).json({ error: 'ID do teste e respostas são obrigatórios.' });
     }
     try {
-        await baserowServer.patch(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId), {
+        await baserowServerClient_js_1.baserowServer.patch(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId), {
             data_de_resposta: new Date().toISOString(),
             respostas: JSON.stringify(responses),
             status: 'Processando',
@@ -993,7 +998,7 @@ app.patch('/api/behavioral-test/submit', async (req, res) => {
         if (!TESTE_COMPORTAMENTAL_WEBHOOK_URL) {
             throw new Error('URL do webhook de teste comportamental não configurada no servidor.');
         }
-        const n8nResponse = await fetch(TESTE_COMPORTAMENTAL_WEBHOOK_URL, {
+        const n8nResponse = await (0, node_fetch_1.default)(TESTE_COMPORTAMENTAL_WEBHOOK_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ testId: parseInt(testId), responses }),
@@ -1028,12 +1033,12 @@ app.patch('/api/behavioral-test/submit', async (req, res) => {
             perfil_analista: perfilAnalisado.pontuacoes.analista,
             status: 'Concluído'
         };
-        const updatedTest = await baserowServer.patch(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId), dataToUpdate);
+        const updatedTest = await baserowServerClient_js_1.baserowServer.patch(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId), dataToUpdate);
         res.status(200).json({ success: true, data: updatedTest });
     }
     catch (error) {
         console.error(`[Teste ${testId}] Erro no fluxo síncrono do teste:`, error.message);
-        await baserowServer.patch(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId), { status: 'Erro' }).catch(err => console.error("Falha ao atualizar status para Erro:", err));
+        await baserowServerClient_js_1.baserowServer.patch(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId), { status: 'Erro' }).catch(err => console.error("Falha ao atualizar status para Erro:", err));
         res.status(500).json({ error: error.message || 'Erro ao processar o teste.' });
     }
 });
@@ -1043,7 +1048,7 @@ app.get('/api/public/behavioral-test/:testId', async (req, res) => {
         return res.status(400).json({ error: 'ID do teste é obrigatório.' });
     }
     try {
-        const result = await baserowServer.getRow(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId));
+        const result = await baserowServerClient_js_1.baserowServer.getRow(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId));
         if (!result) {
             return res.status(404).json({ error: 'Teste não encontrado.' });
         }
@@ -1059,7 +1064,7 @@ app.get('/api/behavioral-test/results/recruiter/:recruiterId', async (req, res) 
         return res.status(400).json({ error: 'ID do recrutador é obrigatório.' });
     }
     try {
-        const { results } = await baserowServer.get(TESTE_COMPORTAMENTAL_TABLE_ID, `?filter__recrutador__link_row_has=${recruiterId}&order_by=-data_de_resposta`);
+        const { results } = await baserowServerClient_js_1.baserowServer.get(TESTE_COMPORTAMENTAL_TABLE_ID, `?filter__recrutador__link_row_has=${recruiterId}&order_by=-data_de_resposta`);
         res.json({ success: true, data: results || [] });
     }
     catch (error) {
@@ -1073,7 +1078,7 @@ app.get('/api/behavioral-test/result/:testId', async (req, res) => {
         return res.status(400).json({ error: 'ID do teste é obrigatório.' });
     }
     try {
-        const result = await baserowServer.getRow(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId));
+        const result = await baserowServerClient_js_1.baserowServer.getRow(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId));
         if (!result) {
             return res.status(404).json({ error: 'Resultado do teste não encontrado.' });
         }
@@ -1096,7 +1101,7 @@ app.get('/api/public/theoretical-test/:testId', async (req, res) => {
     try {
         console.log('[Public Theoretical Test] Buscando prova:', testId);
         // Buscar a prova aplicada
-        const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+        const appliedTest = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
         if (!appliedTest) {
             return res.status(404).json({ error: 'Prova não encontrada.' });
         }
@@ -1111,7 +1116,7 @@ app.get('/api/public/theoretical-test/:testId', async (req, res) => {
         let candidateName = 'Candidato';
         if (appliedTest.candidato && appliedTest.candidato.length > 0) {
             try {
-                const candidate = await baserowServer.getRow(CANDIDATOS_TABLE_ID, appliedTest.candidato[0].id);
+                const candidate = await baserowServerClient_js_1.baserowServer.getRow(CANDIDATOS_TABLE_ID, appliedTest.candidato[0].id);
                 if (candidate) {
                     candidateName = candidate.nome;
                 }
@@ -1124,7 +1129,7 @@ app.get('/api/public/theoretical-test/:testId', async (req, res) => {
         let modelData = null;
         if (appliedTest.modelo_da_prova && appliedTest.modelo_da_prova.length > 0) {
             try {
-                const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, appliedTest.modelo_da_prova[0].id);
+                const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, appliedTest.modelo_da_prova[0].id);
                 if (model) {
                     modelData = {
                         id: model.id,
@@ -1166,17 +1171,23 @@ app.get('/api/public/theoretical-test/:testId', async (req, res) => {
 });
 // PATCH /api/theoretical-test/submit - Submeter respostas da prova (similar ao comportamental)
 app.patch('/api/theoretical-test/submit', async (req, res) => {
+    console.log(`[Theoretical Test SUBMIT] === INICIO DA REQUISIÇÃO ===`);
+    console.log(`[Theoretical Test SUBMIT] Headers:`, req.headers);
+    console.log(`[Theoretical Test SUBMIT] Body:`, req.body);
     const { testId, responses } = req.body;
+    console.log(`[Theoretical Test SUBMIT] Dados extraídos - testId: ${testId}, responses:`, responses);
     if (!testId || !responses) {
+        console.log(`[Theoretical Test SUBMIT] ERRO: Dados obrigatórios faltando - testId: ${!!testId}, responses: ${!!responses}`);
         return res.status(400).json({ error: 'ID da prova e respostas são obrigatórios.' });
     }
     try {
-        console.log(`[Theoretical Test] Submetendo respostas para prova ${testId}`);
-        console.log(`[Theoretical Test] Responses recebidas:`, responses);
+        console.log(`[Theoretical Test SUBMIT] Iniciando busca da prova ${testId}`);
+        console.log(`[Theoretical Test SUBMIT] Table ID: ${PROVAS_TEORICAS_APLICADAS_TABLE_ID}`);
         // Buscar a prova
-        const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+        const appliedTest = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+        console.log(`[Theoretical Test SUBMIT] Resultado da busca:`, appliedTest ? 'ENCONTRADA' : 'NÃO ENCONTRADA');
         if (!appliedTest) {
-            console.log(`[Theoretical Test] Prova ${testId} não encontrada no banco`);
+            console.log(`[Theoretical Test SUBMIT] ERRO: Prova ${testId} não encontrada no banco`);
             return res.status(404).json({ error: 'Prova não encontrada.' });
         }
         console.log(`[Theoretical Test] Prova encontrada:`, {
@@ -1196,7 +1207,7 @@ app.patch('/api/theoretical-test/submit', async (req, res) => {
         if (appliedTest.modelo_da_prova && appliedTest.modelo_da_prova.length > 0) {
             try {
                 console.log(`[Theoretical Test] Buscando modelo com ID:`, appliedTest.modelo_da_prova[0].id);
-                const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, appliedTest.modelo_da_prova[0].id);
+                const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, appliedTest.modelo_da_prova[0].id);
                 console.log(`[Theoretical Test] Modelo encontrado:`, !!model);
                 if (model && model.perguntas) {
                     console.log(`[Theoretical Test] Tipo de perguntas:`, typeof model.perguntas);
@@ -1220,18 +1231,36 @@ app.patch('/api/theoretical-test/submit', async (req, res) => {
                 console.error('[Theoretical Test] Erro ao buscar modelo para pontuação:', modelError);
             }
         }
+        console.log(`[Theoretical Test SUBMIT] Preparando dados para atualização:`);
+        console.log(`[Theoretical Test SUBMIT] - Pontuação total: ${pontuacaoTotal}`);
+        console.log(`[Theoretical Test SUBMIT] - Responses JSON:`, JSON.stringify(responses));
         // Atualizar a prova com as respostas e pontuação
-        await baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId), {
+        console.log(`[Theoretical Test SUBMIT] Iniciando atualização da prova ${testId}`);
+        const updateData = {
             data_de_resposta: new Date().toISOString(),
             respostas_candidato: JSON.stringify(responses),
             pontuacao_total: pontuacaoTotal,
-            status: false, // Boolean: false = finalizada
-        });
-        console.log(`[Theoretical Test] Prova ${testId} submetida com sucesso`);
+            status: 'Finalizada', // Single Select: usar string em vez de boolean
+        };
+        console.log(`[Theoretical Test SUBMIT] Dados de atualização:`, updateData);
+        let updateResult;
+        try {
+            updateResult = await baserowServerClient_js_1.baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId), updateData);
+            console.log(`[Theoretical Test SUBMIT] Resultado da atualização:`, updateResult ? 'SUCESSO' : 'FALHA');
+            console.log(`[Theoretical Test SUBMIT] Prova ${testId} submetida com sucesso`);
+        }
+        catch (updateError) {
+            console.error(`[Theoretical Test SUBMIT] ERRO na atualização da prova:`, updateError);
+            if (updateError instanceof Error) {
+                console.error(`[Theoretical Test SUBMIT] Detalhes do erro:`, updateError.message);
+                console.error(`[Theoretical Test SUBMIT] Stack trace:`, updateError.stack);
+            }
+            throw updateError; // Re-throw para ser capturado pelo catch principal
+        }
         // Disparar webhook para N8N (se configurado)
         if (N8N_THEORETICAL_WEBHOOK_URL) {
             try {
-                await fetch(N8N_THEORETICAL_WEBHOOK_URL, {
+                await (0, node_fetch_1.default)(N8N_THEORETICAL_WEBHOOK_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1240,10 +1269,10 @@ app.patch('/api/theoretical-test/submit', async (req, res) => {
                         responses
                     }),
                 });
-                console.log(`[Theoretical Test] Webhook enviado para N8N`);
+                console.log(`[Theoretical Test SUBMIT] Webhook enviado para N8N`);
             }
             catch (webhookError) {
-                console.error(`[Theoretical Test] Erro no webhook:`, webhookError);
+                console.error(`[Theoretical Test SUBMIT] Erro no webhook:`, webhookError);
             }
         }
         res.json({
@@ -1252,7 +1281,13 @@ app.patch('/api/theoretical-test/submit', async (req, res) => {
         });
     }
     catch (error) {
-        console.error(`[Theoretical Test] Erro ao submeter prova:`, error);
+        console.error(`[Theoretical Test SUBMIT] === ERRO GERAL ===`);
+        console.error(`[Theoretical Test SUBMIT] Erro ao submeter prova:`, error);
+        if (error instanceof Error) {
+            console.error(`[Theoretical Test SUBMIT] Mensagem do erro:`, error.message);
+            console.error(`[Theoretical Test SUBMIT] Stack trace:`, error.stack);
+        }
+        console.error(`[Theoretical Test SUBMIT] === FIM ERRO ===`);
         res.status(500).json({ error: 'Erro ao submeter a prova.' });
     }
 });
@@ -1265,12 +1300,12 @@ app.delete('/api/theoretical-test/cancel/:testId', async (req, res) => {
     try {
         console.log(`[Theoretical Test] Cancelando prova ${testId}`);
         // Buscar a prova para verificar se existe
-        const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+        const appliedTest = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
         if (!appliedTest) {
             return res.status(404).json({ error: 'Prova não encontrada.' });
         }
         // Marcar como cancelada (status = false)
-        await baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId), {
+        await baserowServerClient_js_1.baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId), {
             status: false,
             data_de_resposta: new Date().toISOString()
         });
@@ -1293,14 +1328,14 @@ app.get('/api/theoretical-test/check/:candidateId', async (req, res) => {
     }
     try {
         console.log(`[Theoretical Test] Verificando prova existente para candidato ${candidateId}`);
-        const { results: existingTests } = await baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}&filter__status=true`);
+        const { results: existingTests } = await baserowServerClient_js_1.baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}&filter__status=true`);
         if (existingTests && existingTests.length > 0) {
             const existingTest = existingTests[0];
             // Buscar nome do modelo
             let modelName = 'Modelo não encontrado';
             if (existingTest.modelo_da_prova && existingTest.modelo_da_prova.length > 0) {
                 try {
-                    const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, existingTest.modelo_da_prova[0].id);
+                    const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, existingTest.modelo_da_prova[0].id);
                     if (model) {
                         modelName = model.titulo || model.nome;
                     }
@@ -1338,11 +1373,11 @@ app.get('/api/theoretical-test/check/:candidateId', async (req, res) => {
 app.get('/api/theoretical-models', async (req, res) => {
     try {
         // Pegar o ID do usuário dos headers ou query params
-        const userId = req.headers['x-user-id'] || req.query.userId || '1'; // Default para usuário 1
+        const userId = req.headers['x-user-id'] || req.query.userId || '2'; // Default para usuário 2
         console.log('🔍 Buscando modelos para usuário:', userId);
         console.log('🔍 Buscando modelos na tabela:', PROVAS_TEORICAS_MODELOS_TABLE_ID);
         // Buscar todos os modelos e filtrar no backend
-        const response = await baserowServer.get(PROVAS_TEORICAS_MODELOS_TABLE_ID);
+        const response = await baserowServerClient_js_1.baserowServer.get(PROVAS_TEORICAS_MODELOS_TABLE_ID);
         console.log('📊 Resposta do Baserow:', JSON.stringify(response, null, 2));
         if (!response.results || !Array.isArray(response.results)) {
             console.log('⚠️ Nenhum resultado encontrado ou formato inválido');
@@ -1400,7 +1435,7 @@ app.get('/api/theoretical-models', async (req, res) => {
 app.get('/api/theoretical-models/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id));
+        const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id));
         if (!model) {
             return res.status(404).json({ error: 'Modelo de prova não encontrado.' });
         }
@@ -1452,7 +1487,7 @@ app.post('/api/theoretical-models', async (req, res) => {
         // Processar questões - gerar IDs se necessário
         const questoesComId = questoes.map((questao) => ({
             ...questao,
-            id: questao.id || crypto.randomUUID()
+            id: questao.id || crypto_1.default.randomUUID()
         }));
         // Pegar o ID do usuário dos headers ou query params
         const userId = req.headers['x-user-id'] || req.body.userId || '1'; // Default para usuário 1
@@ -1467,7 +1502,7 @@ app.post('/api/theoretical-models', async (req, res) => {
         };
         console.log('📤 Criando modelo no Baserow:', newModelData);
         console.log('🏗️ Table ID usado:', PROVAS_TEORICAS_MODELOS_TABLE_ID);
-        const createdModel = await baserowServer.post(PROVAS_TEORICAS_MODELOS_TABLE_ID, newModelData);
+        const createdModel = await baserowServerClient_js_1.baserowServer.post(PROVAS_TEORICAS_MODELOS_TABLE_ID, newModelData);
         console.log('✅ Modelo criado com sucesso - ID:', createdModel.id);
         console.log('🔍 Dados retornados do Baserow:', JSON.stringify(createdModel, null, 2));
         // Tratamento seguro do campo questões usando nome correto do Baserow
@@ -1520,7 +1555,7 @@ app.put('/api/theoretical-models/:id', async (req, res) => {
     try {
         // Verificar se o modelo existe
         console.log(`🔍 Verificando se modelo ${id} existe...`);
-        const existingModel = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id));
+        const existingModel = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id));
         if (!existingModel) {
             console.log(`❌ Modelo ${id} não encontrado`);
             return res.status(404).json({ error: 'Modelo de prova não encontrado.' });
@@ -1558,13 +1593,13 @@ app.put('/api/theoretical-models/:id', async (req, res) => {
             // Manter IDs existentes ou gerar novos
             const questoesComId = questoes.map(questao => ({
                 ...questao,
-                id: questao.id || crypto.randomUUID()
+                id: questao.id || crypto_1.default.randomUUID()
             }));
             updateData.perguntas = JSON.stringify(questoesComId); // Campo é 'perguntas' no Baserow
             console.log('✅ Questões validadas e processadas');
         }
         console.log('📤 Dados de atualização para Baserow:', JSON.stringify(updateData, null, 2));
-        const updatedModel = await baserowServer.patch(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id), updateData);
+        const updatedModel = await baserowServerClient_js_1.baserowServer.patch(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id), updateData);
         const formattedModel = {
             id: updatedModel.id,
             nome: updatedModel.titulo, // Campo é 'titulo' no Baserow
@@ -1601,7 +1636,7 @@ app.delete('/api/theoretical-models/:id', async (req, res) => {
     try {
         // Verificar se o modelo existe
         console.log(`🔍 Verificando se modelo ${id} existe...`);
-        const existingModel = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id));
+        const existingModel = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id));
         if (!existingModel) {
             console.log(`❌ Modelo ${id} não encontrado`);
             return res.status(404).json({ error: 'Modelo de prova não encontrado.' });
@@ -1617,7 +1652,7 @@ app.delete('/api/theoretical-models/:id', async (req, res) => {
         console.log(`✅ Modelo ${id} encontrado e usuário autorizado:`, existingModel.titulo);
         // SEMPRE deletar fisicamente - removendo a verificação de provas aplicadas
         console.log(`🗑️ Deletando modelo ${id} FISICAMENTE do Baserow...`);
-        await baserowServer.delete(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id));
+        await baserowServerClient_js_1.baserowServer.delete(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id));
         console.log(`✅ Modelo ${id} deletado com sucesso do Baserow`);
         res.json({
             success: true,
@@ -1653,7 +1688,7 @@ app.post('/api/theoretical-test/generate', async (req, res) => {
     try {
         console.log('[Theoretical Test] 1. Verificando candidato...');
         // Verificar se o candidato existe
-        const candidate = await baserowServer.getRow(CANDIDATOS_TABLE_ID, parseInt(finalCandidateId));
+        const candidate = await baserowServerClient_js_1.baserowServer.getRow(CANDIDATOS_TABLE_ID, parseInt(finalCandidateId));
         if (!candidate) {
             console.log('[Theoretical Test] ❌ Candidato não encontrado:', finalCandidateId);
             return res.status(404).json({ error: 'Candidato não encontrado.' });
@@ -1661,7 +1696,7 @@ app.post('/api/theoretical-test/generate', async (req, res) => {
         console.log('[Theoretical Test] ✅ Candidato encontrado:', candidate.nome);
         console.log('[Theoretical Test] 2. Verificando modelo...');
         // Verificar se o modelo existe e está ativo
-        const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(finalModeloId));
+        const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(finalModeloId));
         if (!model) {
             console.log('[Theoretical Test] ❌ Modelo não encontrado:', finalModeloId);
             return res.status(404).json({ error: 'Modelo de prova não encontrado.' });
@@ -1696,12 +1731,12 @@ app.post('/api/theoretical-test/generate', async (req, res) => {
             console.log('[Theoretical Test] Adicionado recrutador:', recruiterId);
         }
         console.log('[Theoretical Test] Dados para criar:', JSON.stringify(appliedTestData, null, 2));
-        const createdTest = await baserowServer.post(PROVAS_TEORICAS_APLICADAS_TABLE_ID, appliedTestData);
+        const createdTest = await baserowServerClient_js_1.baserowServer.post(PROVAS_TEORICAS_APLICADAS_TABLE_ID, appliedTestData);
         console.log('[Theoretical Test] ✅ Prova criada com ID:', createdTest.id);
         // Enviar notificação via N8N (se configurado)
         if (N8N_THEORETICAL_WEBHOOK_URL) {
             try {
-                await fetch(N8N_THEORETICAL_WEBHOOK_URL, {
+                await (0, node_fetch_1.default)(N8N_THEORETICAL_WEBHOOK_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1751,7 +1786,7 @@ app.post('/api/theoretical-test/generate', async (req, res) => {
 app.get('/api/theoretical-test/:candidateId', async (req, res) => {
     const { candidateId } = req.params;
     try {
-        const { results } = await baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}`);
+        const { results } = await baserowServerClient_js_1.baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}`);
         if (!results || results.length === 0) {
             return res.status(404).json({ error: 'Nenhuma prova em andamento encontrada para este candidato.' });
         }
@@ -1766,7 +1801,7 @@ app.get('/api/theoretical-test/:candidateId', async (req, res) => {
         // Buscar o modelo da prova para obter as questões
         // appliedTest.modelo_da_prova é um array de links, pegar o primeiro ID
         const modeloId = appliedTest.modelo_da_prova?.[0] || appliedTest.modelo_da_prova;
-        const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(modeloId));
+        const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(modeloId));
         if (!model) {
             return res.status(404).json({ error: 'Modelo de prova não encontrado.' });
         }
@@ -1811,7 +1846,7 @@ app.put('/api/theoretical-test/:testId/submit', async (req, res) => {
     }
     try {
         // Buscar a prova aplicada
-        const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+        const appliedTest = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
         if (!appliedTest) {
             return res.status(404).json({ error: 'Prova não encontrada.' });
         }
@@ -1819,7 +1854,7 @@ app.put('/api/theoretical-test/:testId/submit', async (req, res) => {
             return res.status(400).json({ error: 'Esta prova não está mais em andamento.' });
         }
         // Buscar o modelo para calcular pontuação
-        const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(appliedTest.modelo_prova_id));
+        const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(appliedTest.modelo_prova_id));
         if (!model) {
             return res.status(404).json({ error: 'Modelo de prova não encontrado.' });
         }
@@ -1855,7 +1890,7 @@ app.put('/api/theoretical-test/:testId/submit', async (req, res) => {
             status: 'Concluído', // Status correto: Concluído quando finalizada
             data_de_resposta: new Date().toISOString() // Campo correto para data de finalização
         };
-        const updatedTest = await baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId), updateData);
+        const updatedTest = await baserowServerClient_js_1.baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId), updateData);
         // Enviar notificação de prova finalizada via N8N
         if (N8N_THEORETICAL_WEBHOOK_URL) {
             try {
@@ -1863,8 +1898,8 @@ app.put('/api/theoretical-test/:testId/submit', async (req, res) => {
                 const candidatoId = Array.isArray(appliedTest.candidato)
                     ? appliedTest.candidato[0]
                     : appliedTest.candidato;
-                const candidate = await baserowServer.getRow(CANDIDATOS_TABLE_ID, parseInt(candidatoId));
-                await fetch(N8N_THEORETICAL_WEBHOOK_URL, {
+                const candidate = await baserowServerClient_js_1.baserowServer.getRow(CANDIDATOS_TABLE_ID, parseInt(candidatoId));
+                await (0, node_fetch_1.default)(N8N_THEORETICAL_WEBHOOK_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1902,7 +1937,7 @@ app.get('/api/theoretical-test/results/:candidateId', async (req, res) => {
     const { candidateId } = req.params;
     try {
         // Buscar provas do candidato usando o campo de Link correto
-        const { results } = await baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}&order_by=-data_de_resposta`);
+        const { results } = await baserowServerClient_js_1.baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}&order_by=-data_de_resposta`);
         if (!results || results.length === 0) {
             return res.json({ success: true, data: [] });
         }
@@ -1911,7 +1946,7 @@ app.get('/api/theoretical-test/results/:candidateId', async (req, res) => {
             let modelName = 'Modelo não encontrado';
             if (test.modelo_da_prova && test.modelo_da_prova.length > 0) {
                 try {
-                    const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, test.modelo_da_prova[0].id);
+                    const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, test.modelo_da_prova[0].id);
                     modelName = model?.titulo || 'Modelo não encontrado';
                 }
                 catch (error) {
@@ -1938,7 +1973,7 @@ app.delete('/api/theoretical-test/:candidateId/cancel', async (req, res) => {
     try {
         const { candidateId } = req.params;
         // Buscar prova em andamento
-        const { results: existingTests } = await baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}`);
+        const { results: existingTests } = await baserowServerClient_js_1.baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}`);
         if (!existingTests || existingTests.length === 0) {
             return res.status(404).json({
                 error: 'Nenhuma prova em andamento encontrada para este candidato.'
@@ -1946,7 +1981,7 @@ app.delete('/api/theoretical-test/:candidateId/cancel', async (req, res) => {
         }
         const testToCancel = existingTests[0];
         // Atualizar status para cancelada
-        await baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, testToCancel.id, {
+        await baserowServerClient_js_1.baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, testToCancel.id, {
             status: 'Processando', // Usar valor válido do Baserow - será testado
             data_de_resposta: new Date().toISOString(), // Data de cancelamento
             observacoes: 'Prova cancelada para permitir nova geração'
@@ -1970,12 +2005,12 @@ app.delete('/api/theoretical-test/delete/:testId', async (req, res) => {
     try {
         console.log(`[Theoretical Test] Excluindo prova ${testId} permanentemente`);
         // Verificar se a prova existe antes de excluir
-        const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+        const appliedTest = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
         if (!appliedTest) {
             return res.status(404).json({ error: 'Prova não encontrada.' });
         }
         // Excluir a prova permanentemente
-        await baserowServer.delete(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+        await baserowServerClient_js_1.baserowServer.delete(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
         console.log(`[Theoretical Test] Prova ${testId} excluída com sucesso`);
         res.json({
             success: true,
@@ -1996,7 +2031,7 @@ app.get('/api/theoretical-test/review/:testId', async (req, res) => {
     try {
         console.log(`[Theoretical Test] Buscando gabarito da prova ${testId}`);
         // Buscar a prova aplicada
-        const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+        const appliedTest = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
         if (!appliedTest) {
             return res.status(404).json({ error: 'Prova não encontrada.' });
         }
@@ -2004,7 +2039,7 @@ app.get('/api/theoretical-test/review/:testId', async (req, res) => {
         let candidateName = 'Candidato não encontrado';
         if (appliedTest.candidato && appliedTest.candidato.length > 0) {
             try {
-                const candidate = await baserowServer.getRow(CANDIDATOS_TABLE_ID, appliedTest.candidato[0].id);
+                const candidate = await baserowServerClient_js_1.baserowServer.getRow(CANDIDATOS_TABLE_ID, appliedTest.candidato[0].id);
                 if (candidate) {
                     candidateName = candidate.nome;
                 }
@@ -2017,7 +2052,7 @@ app.get('/api/theoretical-test/review/:testId', async (req, res) => {
         let modelData = null;
         if (appliedTest.modelo_da_prova && appliedTest.modelo_da_prova.length > 0) {
             try {
-                const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, appliedTest.modelo_da_prova[0].id);
+                const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, appliedTest.modelo_da_prova[0].id);
                 if (model) {
                     modelData = {
                         id: model.id,
@@ -2070,7 +2105,7 @@ app.get('/api/theoretical-test-results/:candidateId', async (req, res) => {
     try {
         const { candidateId } = req.params;
         // Buscar todas as provas do candidato
-        const response = await baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}`);
+        const response = await baserowServerClient_js_1.baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}`);
         if (!response.results || !Array.isArray(response.results)) {
             return res.json({ success: true, data: [] });
         }
@@ -2081,7 +2116,7 @@ app.get('/api/theoretical-test-results/:candidateId', async (req, res) => {
                 const modeloId = Array.isArray(test.modelo_da_prova)
                     ? test.modelo_da_prova[0]
                     : test.modelo_da_prova;
-                const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, modeloId);
+                const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, modeloId);
                 return {
                     id: test.id,
                     modelo_prova: {

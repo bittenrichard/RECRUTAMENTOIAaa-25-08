@@ -53,7 +53,8 @@ function App() {
   }
   
   if (path.startsWith('/gabarito-teorica/')) {
-    return <GabaritoReviewPage />;
+    const testId = path.split('/')[2];
+    return <GabaritoReviewPage testId={testId} />;
   }
 
   useEffect(() => {

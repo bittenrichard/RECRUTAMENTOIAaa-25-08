@@ -89,6 +89,28 @@ const PublicTheoreticalTestPage: React.FC<Props> = ({ testId: propTestId }) => {
   };
 
   const handleSubmitTest = useCallback(async () => {
+    // Validar se todas as questões foram respondidas
+    if (!testData?.modelo_prova?.questoes) {
+      setError('Dados da prova não encontrados.');
+      setStep(-1);
+      return;
+    }
+
+    const totalQuestions = testData.modelo_prova.questoes.length;
+    const answeredQuestions = Object.keys(answers).length;
+    
+    if (answeredQuestions < totalQuestions) {
+      setError(`Você deve responder todas as ${totalQuestions} questões antes de finalizar a prova. Questões respondidas: ${answeredQuestions}/${totalQuestions}`);
+      return;
+    }
+
+    // Verificar se alguma resposta está vazia
+    const emptyAnswers = testData.modelo_prova.questoes.filter(q => !answers[q.id] || answers[q.id].trim() === '');
+    if (emptyAnswers.length > 0) {
+      setError(`Existem ${emptyAnswers.length} questões sem resposta. Por favor, responda todas as questões antes de finalizar.`);
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const response = await fetch(`${API_BASE_URL}/api/theoretical-test/submit`, {
@@ -113,7 +135,7 @@ const PublicTheoreticalTestPage: React.FC<Props> = ({ testId: propTestId }) => {
     } finally {
       setIsSubmitting(false);
     }
-  }, [testId, answers]);
+  }, [testId, answers, testData]);
 
 
 

@@ -1,6 +1,12 @@
+"use strict";
 // Local: src/shared/services/baserowServerClient.ts
-import fetch from 'node-fetch';
-import FormData from 'form-data';
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.baserowServer = void 0;
+const node_fetch_1 = __importDefault(require("node-fetch"));
+const form_data_1 = __importDefault(require("form-data"));
 const BASE_URL = 'https://dados.focoserv.com.br/api/database/rows/table';
 const FILE_UPLOAD_URL = 'https://dados.focoserv.com.br/api/user-files/upload-file/';
 const API_KEY = process.env.BASEROW_API_TOKEN || process.env.VITE_BASEROW_API_KEY;
@@ -8,12 +14,12 @@ const uploadFileRequestFromBuffer = async (fileBuffer, fileName, mimetype) => {
     if (!API_KEY) {
         throw new Error("A chave da API do Baserow (BASEROW_API_TOKEN ou VITE_BASEROW_API_KEY) não foi encontrada no ambiente do servidor.");
     }
-    const formData = new FormData();
+    const formData = new form_data_1.default();
     formData.append('file', fileBuffer, { filename: fileName, contentType: mimetype });
     const formHeaders = formData.getHeaders();
     const headers = { 'Authorization': `Token ${API_KEY}`, ...formHeaders };
     try {
-        const response = await fetch(FILE_UPLOAD_URL, {
+        const response = await (0, node_fetch_1.default)(FILE_UPLOAD_URL, {
             method: 'POST',
             headers: headers,
             body: formData,
@@ -50,7 +56,7 @@ const apiRequest = async (method, tableId, path = '', body) => {
         options.body = JSON.stringify(body);
     }
     try {
-        const response = await fetch(finalUrl, options);
+        const response = await (0, node_fetch_1.default)(finalUrl, options);
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({ detail: 'Não foi possível ler o corpo do erro.' }));
             console.error(`--- ERRO DETALHADO DO BASEROW (Status: ${response.status}) ---:`, errorData);
@@ -66,7 +72,7 @@ const apiRequest = async (method, tableId, path = '', body) => {
         throw error;
     }
 };
-export const baserowServer = {
+exports.baserowServer = {
     get: (tableId, params = '') => apiRequest('GET', tableId, params),
     getRow: (tableId, rowId) => apiRequest('GET', tableId, `${rowId}/`),
     post: (tableId, data) => apiRequest('POST', tableId, ``, data),

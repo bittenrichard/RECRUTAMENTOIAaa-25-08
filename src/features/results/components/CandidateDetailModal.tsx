@@ -43,6 +43,11 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
     if (typeof status === 'string') {
       return status === 'Concluído' || status === 'Concluida';
     }
+    // Tratar objeto do Baserow: { id, value, color }
+    if (typeof status === 'object' && status !== null) {
+      const statusObj = status as { value?: string };
+      return statusObj.value === 'Concluído' || statusObj.value === 'Concluida';
+    }
     return false;
   };
 
