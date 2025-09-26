@@ -27,6 +27,7 @@ N8N_FILE_UPLOAD_URL=https://webhook.focoserv.com.br/webhook/recrutamento
 N8N_SCHEDULE_WEBHOOK_URL=https://webhook.focoserv.com.br/webhook/googleacesso
 N8N_EMAIL_WEBHOOK_URL=https://webhook.focoserv.com.br/webhook/email-reset
 TESTE_COMPORTAMENTAL_WEBHOOK_URL=https://webhook.focoserv.com.br/webhook/testecomportamental
+N8N_THEORETICAL_WEBHOOK_URL=https://webhook.focoserv.com.br/webhook/prova-teorica-gerada
 TRUST_PROXY=true
 SECURE_COOKIES=true
 LOG_LEVEL=info

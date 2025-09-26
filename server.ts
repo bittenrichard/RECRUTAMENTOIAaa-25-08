@@ -1137,6 +1137,47 @@ app.post('/api/google/calendar/create-event', async (req: Request, res: Response
   }
 });
 
+// Endpoint público para listar modelos de prova teórica (sem autenticação)
+app.get('/api/public/theoretical-models', async (req: Request, res: Response) => {
+  try {
+    console.log('🔍 [Public] Buscando modelos na tabela:', PROVAS_TEORICAS_MODELOS_TABLE_ID);
+    const response = await baserowServer.get(PROVAS_TEORICAS_MODELOS_TABLE_ID);
+    
+    if (!response.results || !Array.isArray(response.results)) {
+      console.log('⚠️ Nenhum resultado encontrado ou formato inválido');
+      return res.json({ success: true, data: [] });
+    }
+
+    const models = response.results.map((model: any) => {      
+      let questoes = [];
+      try {
+        questoes = model.perguntas ? JSON.parse(model.perguntas) : [];
+      } catch (parseError) {
+        console.error('Erro ao processar JSON das questões:', parseError);
+        questoes = [];
+      }
+
+      return {
+        id: model.id,
+        nome: model.titulo, // Mapear titulo para nome para compatibilidade com frontend
+        titulo: model.titulo,
+        descricao: model.descricao,
+        ativo: model.ativo,
+        tempo_limite: model.tempo_limite,
+        total_questoes: questoes.length,
+        questoes: questoes
+      };
+    });
+
+    console.log('✅ Modelos processados:', models.length);
+    res.json({ success: true, data: models });
+    
+  } catch (error: any) {
+    console.error('Erro ao buscar modelos de prova teórica:', error);
+    res.status(500).json({ error: 'Erro ao carregar modelos de prova teórica.' });
+  }
+});
+
 app.post('/api/behavioral-test/generate', async (req: Request, res: Response) => {
   const { candidateId, recruiterId } = req.body;
   
@@ -1280,34 +1321,350 @@ app.get('/api/behavioral-test/result/:testId', async (req: Request, res: Respons
 
         res.json({ success: true, data: result });
     } catch (error: any) {
-        console.error(`Erro ao buscar resultado do teste ${testId} (backend):`, error);
-        res.status(500).json({ error: 'Não foi possível buscar o resultado do teste.' });
+    console.error(`Erro ao buscar resultado do teste ${testId} (backend):`, error);
+    res.status(500).json({ error: 'Não foi possível buscar o resultado do teste.' });
+  }
+});
+
+// GET /api/public/theoretical-test/:testId - Endpoint público para acessar prova (similar ao comportamental)
+app.get('/api/public/theoretical-test/:testId', async (req: Request, res: Response) => {
+  const { testId } = req.params;
+  
+  if (!testId) {
+    return res.status(400).json({ error: 'ID da prova é obrigatório.' });
+  }
+  
+  try {
+    console.log('[Public Theoretical Test] Buscando prova:', testId);
+    
+    // Buscar a prova aplicada
+    const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+    if (!appliedTest) {
+      return res.status(404).json({ error: 'Prova não encontrada.' });
     }
+    
+    // Verificar se a prova ainda está ativa (false = finalizada)
+    if (appliedTest.status === false) {
+      return res.status(400).json({ 
+        error: 'Esta prova já foi respondida anteriormente e não pode ser feita novamente.',
+        already_completed: true 
+      });
+    }
+    
+    // Buscar dados do candidato
+    let candidateName = 'Candidato';
+    if (appliedTest.candidato && appliedTest.candidato.length > 0) {
+      try {
+        const candidate = await baserowServer.getRow(CANDIDATOS_TABLE_ID, appliedTest.candidato[0].id);
+        if (candidate) {
+          candidateName = candidate.nome;
+        }
+      } catch (candidateError) {
+        console.error('[Public Theoretical Test] Erro ao buscar candidato:', candidateError);
+      }
+    }
+    
+    // Buscar dados do modelo de prova
+    let modelData = null;
+    if (appliedTest.modelo_da_prova && appliedTest.modelo_da_prova.length > 0) {
+      try {
+        const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, appliedTest.modelo_da_prova[0].id);
+        if (model) {
+          modelData = {
+            id: model.id,
+            titulo: model.titulo,
+            descricao: model.descricao,
+            tempo_limite: model.tempo_limite,
+            questoes: typeof model.perguntas === 'string' 
+              ? JSON.parse(model.perguntas || '[]')
+              : (Array.isArray(model.perguntas) ? model.perguntas : [])
+          };
+        }
+      } catch (modelError) {
+        console.error('[Public Theoretical Test] Erro ao buscar modelo:', modelError);
+        return res.status(404).json({ error: 'Modelo da prova não encontrado.' });
+      }
+    }
+    
+    if (!modelData) {
+      return res.status(404).json({ error: 'Modelo da prova não encontrado.' });
+    }
+    
+    res.json({ 
+      success: true, 
+      data: { 
+        id: appliedTest.id.toString(),
+        candidato_nome: candidateName,
+        modelo_prova: {
+          nome: modelData.titulo,
+          descricao: modelData.descricao,
+          questoes: modelData.questoes
+        },
+        data_inicio: appliedTest.data_de_geracao
+      } 
+    });
+  } catch (error: any) {
+    console.error('[Public Theoretical Test] Erro:', error);
+    res.status(500).json({ error: 'Não foi possível buscar os dados da prova.' });
+  }
+});
+
+// PATCH /api/theoretical-test/submit - Submeter respostas da prova (similar ao comportamental)
+app.patch('/api/theoretical-test/submit', async (req: Request, res: Response) => {
+  const { testId, responses } = req.body;
+  
+  if (!testId || !responses) {
+    return res.status(400).json({ error: 'ID da prova e respostas são obrigatórios.' });
+  }
+  
+  try {
+    console.log(`[Theoretical Test] Submetendo respostas para prova ${testId}`);
+    console.log(`[Theoretical Test] Responses recebidas:`, responses);
+    
+    // Buscar a prova
+    const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+    if (!appliedTest) {
+      console.log(`[Theoretical Test] Prova ${testId} não encontrada no banco`);
+      return res.status(404).json({ error: 'Prova não encontrada.' });
+    }
+    
+    console.log(`[Theoretical Test] Prova encontrada:`, {
+      id: appliedTest.id,
+      status: appliedTest.status,
+      modelo_da_prova: appliedTest.modelo_da_prova
+    });
+    
+    // Verificar se ainda está ativa (false = finalizada)
+    if (appliedTest.status === false) {
+      return res.status(400).json({ 
+        error: 'Esta prova já foi respondida anteriormente e não pode ser feita novamente.',
+        already_completed: true 
+      });
+    }
+    
+    // Buscar modelo da prova para calcular pontuação
+    let pontuacaoTotal = 0;
+    
+    if (appliedTest.modelo_da_prova && appliedTest.modelo_da_prova.length > 0) {
+      try {
+        console.log(`[Theoretical Test] Buscando modelo com ID:`, appliedTest.modelo_da_prova[0].id);
+        const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, appliedTest.modelo_da_prova[0].id);
+        console.log(`[Theoretical Test] Modelo encontrado:`, !!model);
+        if (model && model.perguntas) {
+          console.log(`[Theoretical Test] Tipo de perguntas:`, typeof model.perguntas);
+          const questoes = typeof model.perguntas === 'string' 
+            ? JSON.parse(model.perguntas) 
+            : (Array.isArray(model.perguntas) ? model.perguntas : []);
+          console.log(`[Theoretical Test] Número de questões:`, questoes.length);
+          
+          // Calcular pontuação para questões objetivas
+          questoes.forEach((questao: any) => {
+            if (questao.id && responses[questao.id]) {
+              if (questao.tipo === 'verdadeiro_falso' || questao.tipo === 'multipla_escolha') {
+                if (questao.resposta_correta && responses[questao.id] === questao.resposta_correta) {
+                  pontuacaoTotal += questao.pontuacao || 1;
+                }
+              }
+            }
+          });
+        }
+      } catch (modelError) {
+        console.error('[Theoretical Test] Erro ao buscar modelo para pontuação:', modelError);
+      }
+    }
+    
+    // Atualizar a prova com as respostas e pontuação
+    await baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId), {
+      data_de_resposta: new Date().toISOString(),
+      respostas_candidato: JSON.stringify(responses),
+      pontuacao_total: pontuacaoTotal,
+      status: false, // Boolean: false = finalizada
+    });
+    
+    console.log(`[Theoretical Test] Prova ${testId} submetida com sucesso`);
+    
+    // Disparar webhook para N8N (se configurado)
+    if (N8N_THEORETICAL_WEBHOOK_URL) {
+      try {
+        await fetch(N8N_THEORETICAL_WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            action: 'prova_submetida',
+            testId: parseInt(testId), 
+            responses 
+          }),
+        });
+        console.log(`[Theoretical Test] Webhook enviado para N8N`);
+      } catch (webhookError) {
+        console.error(`[Theoretical Test] Erro no webhook:`, webhookError);
+      }
+    }
+    
+    res.json({ 
+      success: true, 
+      message: 'Prova submetida com sucesso! Obrigado por participar. Em breve entraremos em contato com o resultado.'
+    });
+  } catch (error: unknown) {
+    console.error(`[Theoretical Test] Erro ao submeter prova:`, error);
+    res.status(500).json({ error: 'Erro ao submeter a prova.' });
+  }
+});
+
+// DELETE /api/theoretical-test/cancel/:testId - Cancelar prova existente (similar ao comportamental)
+app.delete('/api/theoretical-test/cancel/:testId', async (req: Request, res: Response) => {
+  const { testId } = req.params;
+  
+  if (!testId) {
+    return res.status(400).json({ error: 'ID da prova é obrigatório.' });
+  }
+  
+  try {
+    console.log(`[Theoretical Test] Cancelando prova ${testId}`);
+    
+    // Buscar a prova para verificar se existe
+    const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+    if (!appliedTest) {
+      return res.status(404).json({ error: 'Prova não encontrada.' });
+    }
+    
+    // Marcar como cancelada (status = false)
+    await baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId), {
+      status: false,
+      data_de_resposta: new Date().toISOString()
+    });
+    
+    console.log(`[Theoretical Test] Prova ${testId} cancelada com sucesso`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Prova cancelada com sucesso!' 
+    });
+  } catch (error: unknown) {
+    console.error(`[Theoretical Test] Erro ao cancelar prova:`, error);
+    res.status(500).json({ error: 'Erro ao cancelar a prova.' });
+  }
+});
+
+// GET /api/theoretical-test/check/:candidateId - Verificar se candidato tem prova existente
+app.get('/api/theoretical-test/check/:candidateId', async (req: Request, res: Response) => {
+  const { candidateId } = req.params;
+  
+  if (!candidateId) {
+    return res.status(400).json({ error: 'ID do candidato é obrigatório.' });
+  }
+  
+  try {
+    console.log(`[Theoretical Test] Verificando prova existente para candidato ${candidateId}`);
+    
+    const { results: existingTests } = await baserowServer.get(
+      PROVAS_TEORICAS_APLICADAS_TABLE_ID,
+      `?filter__candidato=${candidateId}&filter__status=true`
+    );
+    
+    if (existingTests && existingTests.length > 0) {
+      const existingTest = existingTests[0];
+      
+      // Buscar nome do modelo
+      let modelName = 'Modelo não encontrado';
+      if (existingTest.modelo_da_prova && existingTest.modelo_da_prova.length > 0) {
+        try {
+          const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, existingTest.modelo_da_prova[0].id);
+          if (model) {
+            modelName = model.titulo || model.nome;
+          }
+        } catch (modelError) {
+          console.error('Erro ao buscar modelo:', modelError);
+        }
+      }
+      
+      res.json({
+        success: true,
+        hasExistingTest: true,
+        data: {
+          id: existingTest.id,
+          modelo_nome: modelName,
+          data_inicio: existingTest.data_de_geracao,
+          link: `${FRONTEND_URL}/prova-teorica/${existingTest.id}`
+        }
+      });
+    } else {
+      res.json({
+        success: true,
+        hasExistingTest: false
+      });
+    }
+  } catch (error: unknown) {
+    console.error(`[Theoretical Test] Erro ao verificar prova existente:`, error);
+    res.status(500).json({ error: 'Erro ao verificar prova existente.' });
+  }
 });
 
 // ========================================
 // ENDPOINTS - SISTEMA DE PROVAS TEÓRICAS
-// ========================================
-
-// GET /api/theoretical-models - Listar todos os modelos de prova
+// ========================================// GET /api/theoretical-models - Listar modelos de prova do usuário + modelos públicos do usuário ID 1
 app.get('/api/theoretical-models', async (req: Request, res: Response) => {
   try {
-    const { results } = await baserowServer.get(PROVAS_TEORICAS_MODELOS_TABLE_ID);
+    // Pegar o ID do usuário dos headers ou query params
+    const userId = req.headers['x-user-id'] || req.query.userId || '1'; // Default para usuário 1
     
-    const models = results.map((model: any) => ({
-      id: model.id,
-      nome: model.titulo,        // Campo é 'titulo' no Baserow
-      descricao: model.descricao,
-      tempo_limite: model.tempo_limite,
-      questoes: JSON.parse(model.perguntas || '[]'), // Campo é 'perguntas' no Baserow
-      ativo: model.ativo,
-      created_at: model.created_at || null,
-      updated_at: model.updated_at || null
-    }));
+    console.log('🔍 Buscando modelos para usuário:', userId);
+    console.log('🔍 Buscando modelos na tabela:', PROVAS_TEORICAS_MODELOS_TABLE_ID);
+    
+    // Buscar todos os modelos e filtrar no backend
+    const response = await baserowServer.get(PROVAS_TEORICAS_MODELOS_TABLE_ID);
+    console.log('📊 Resposta do Baserow:', JSON.stringify(response, null, 2));
+    
+    if (!response.results || !Array.isArray(response.results)) {
+      console.log('⚠️ Nenhum resultado encontrado ou formato inválido');
+      return res.json({ success: true, data: [] });
+    }
 
+    const filteredResults = response.results.filter((model: any) => {
+      const modelOwner = model.criado_por || 1; // Default para usuário 1
+      // Se é usuário 1, vê apenas seus modelos
+      if (String(userId) === '1') {
+        return String(modelOwner) === '1';
+      }
+      // Outros usuários veem seus próprios modelos + modelos do usuário 1
+      return String(modelOwner) === String(userId) || String(modelOwner) === '1';
+    });
+
+    const models = filteredResults.map((model: any) => {
+      console.log('🔧 Processando modelo:', model.id, model.titulo, 'do usuário:', model.criado_por || 1);
+      
+      let questoes = [];
+      try {
+        if (typeof model.perguntas === 'string') {
+          questoes = JSON.parse(model.perguntas || '[]');
+        } else if (Array.isArray(model.perguntas)) {
+          questoes = model.perguntas;
+        } else if (model.perguntas && typeof model.perguntas === 'object') {
+          questoes = [model.perguntas];
+        }
+      } catch (parseError) {
+        console.error('❌ Erro ao fazer parse das questões do modelo', model.id, ':', parseError);
+        questoes = [];
+      }
+
+      return {
+        id: model.id,
+        nome: model.titulo,        // Campo é 'titulo' no Baserow
+        descricao: model.descricao,
+        tempo_limite: model.tempo_limite,
+        questoes: questoes,
+        ativo: model.ativo,
+        criado_por: model.criado_por || 1, // Incluir info do criador
+        is_template: (model.criado_por || 1) === 1, // Marcar se é template (do usuário 1)
+        created_at: model.created_at || null,
+        updated_at: model.updated_at || null
+      };
+    });
+
+    console.log('✅ Modelos processados:', models.length);
     res.json({ success: true, data: models });
   } catch (error: unknown) {
-    console.error('Erro ao buscar modelos de prova:', error);
+    console.error('❌ Erro ao buscar modelos de prova:', error);
     res.status(500).json({ error: 'Não foi possível carregar os modelos de prova.' });
   }
 });
@@ -1382,13 +1739,17 @@ app.post('/api/theoretical-models', async (req: Request, res: Response) => {
       id: questao.id || crypto.randomUUID()
     }));
 
+    // Pegar o ID do usuário dos headers ou query params
+    const userId = req.headers['x-user-id'] || req.body.userId || '1'; // Default para usuário 1
+    
     // Criar dados para o Baserow usando os nomes corretos dos campos
     const newModelData = {
       titulo: String(nome).trim(),        // Campo é 'titulo' no Baserow, não 'nome'
       descricao: descricao ? String(descricao).trim() : '', 
       tempo_limite: tempoLimiteNum,
       perguntas: JSON.stringify(questoesComId), // Campo é 'perguntas' no Baserow, não 'questoes'
-      ativo: ativoBoolean
+      ativo: ativoBoolean,
+      criado_por: parseInt(String(userId)) // Associar ao usuário que está criando
     };
 
     console.log('📤 Criando modelo no Baserow:', newModelData);
@@ -1538,7 +1899,9 @@ app.put('/api/theoretical-models/:id', async (req: Request, res: Response) => {
 // DELETE /api/theoretical-models/:id - Deletar modelo de prova FISICAMENTE
 app.delete('/api/theoretical-models/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
-  console.log(`🗑️ DELETE Request - ID: ${id}`);
+  const userId = req.headers['x-user-id'] || req.query.userId || '1'; // ID do usuário logado
+  
+  console.log(`🗑️ DELETE Request - ID: ${id}, Usuário: ${userId}`);
 
   try {
     // Verificar se o modelo existe
@@ -1548,7 +1911,17 @@ app.delete('/api/theoretical-models/:id', async (req: Request, res: Response) =>
       console.log(`❌ Modelo ${id} não encontrado`);
       return res.status(404).json({ error: 'Modelo de prova não encontrado.' });
     }
-    console.log(`✅ Modelo ${id} encontrado:`, existingModel.nome);
+    
+    // Verificar se o usuário pode excluir este modelo
+    const modelOwner = existingModel.criado_por || 1; // Default para usuário 1 se não tiver o campo
+    if (String(modelOwner) !== String(userId)) {
+      console.log(`❌ Usuário ${userId} não pode excluir modelo do usuário ${modelOwner}`);
+      return res.status(403).json({ 
+        error: 'Você não tem permissão para excluir este modelo. Apenas o criador pode excluir seus próprios modelos.' 
+      });
+    }
+    
+    console.log(`✅ Modelo ${id} encontrado e usuário autorizado:`, existingModel.titulo);
 
     // SEMPRE deletar fisicamente - removendo a verificação de provas aplicadas
     console.log(`🗑️ Deletando modelo ${id} FISICAMENTE do Baserow...`);
@@ -1566,63 +1939,96 @@ app.delete('/api/theoretical-models/:id', async (req: Request, res: Response) =>
   }
 });
 
-// POST /api/theoretical-test/generate - Gerar prova para candidato
+// POST /api/theoretical-test/generate - Gerar prova para candidato (similar ao comportamental)
 app.post('/api/theoretical-test/generate', async (req: Request, res: Response) => {
-  const { candidato_id, modelo_prova_id }: { candidato_id: string; modelo_prova_id: string } = req.body;
+  // Aceitar tanto o formato antigo (candidato_id) quanto o novo (candidateId) para compatibilidade
+  const { 
+    candidateId, 
+    modeloId, 
+    recruiterId,
+    candidato_id,
+    modelo_prova_id 
+  } = req.body;
 
-  if (!candidato_id || !modelo_prova_id) {
+  // Usar o formato que estiver disponível
+  const finalCandidateId = candidateId || candidato_id;
+  const finalModeloId = modeloId || modelo_prova_id;
+
+  console.log('[Theoretical Test] Requisição recebida:', { 
+    candidateId: finalCandidateId, 
+    modeloId: finalModeloId, 
+    recruiterId,
+    body: req.body 
+  });
+
+  if (!finalCandidateId || !finalModeloId) {
+    console.log('[Theoretical Test] Erro: dados obrigatórios faltando');
     return res.status(400).json({ 
-      error: 'ID do candidato e ID do modelo de prova são obrigatórios.' 
+      error: 'ID do candidato e ID do modelo de prova são obrigatórios.',
+      received: { candidateId: finalCandidateId, modeloId: finalModeloId }
     });
   }
 
   try {
+    console.log('[Theoretical Test] 1. Verificando candidato...');
+    
     // Verificar se o candidato existe
-    const candidate = await baserowServer.getRow(CANDIDATOS_TABLE_ID, parseInt(candidato_id));
+    const candidate = await baserowServer.getRow(CANDIDATOS_TABLE_ID, parseInt(finalCandidateId));
     if (!candidate) {
+      console.log('[Theoretical Test] ❌ Candidato não encontrado:', finalCandidateId);
       return res.status(404).json({ error: 'Candidato não encontrado.' });
     }
+    console.log('[Theoretical Test] ✅ Candidato encontrado:', candidate.nome);
 
+    console.log('[Theoretical Test] 2. Verificando modelo...');
+    
     // Verificar se o modelo existe e está ativo
-    const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(modelo_prova_id));
+    const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(finalModeloId));
     if (!model) {
+      console.log('[Theoretical Test] ❌ Modelo não encontrado:', finalModeloId);
       return res.status(404).json({ error: 'Modelo de prova não encontrado.' });
     }
+    console.log('[Theoretical Test] ✅ Modelo encontrado:', model.titulo);
 
     if (!model.ativo) {
+      console.log('[Theoretical Test] ❌ Modelo inativo:', model.ativo);
       return res.status(400).json({ error: 'Este modelo de prova não está ativo.' });
     }
+    console.log('[Theoretical Test] ✅ Modelo ativo');
 
-    // Verificar se já existe prova em andamento para este candidato
-    const { results: existingTests } = await baserowServer.get(
-      PROVAS_TEORICAS_APLICADAS_TABLE_ID, 
-      `?filter__candidato_id=${candidato_id}&filter__status=em_andamento`
-    );
+    console.log('[Theoretical Test] 3. Pronto para criar nova prova...');
+    
+    // Igual ao comportamental: permitir múltiplas provas sem verificação de existência
+    // O candidato pode ter várias provas (Pendente, Concluído, etc.)
 
-    if (existingTests && existingTests.length > 0) {
-      return res.status(400).json({ 
-        error: 'Este candidato já possui uma prova em andamento.' 
-      });
-    }
-
-    // Criar nova prova aplicada
-    const questoes = JSON.parse(model.questoes || '[]');
-    const questoesRespostas = questoes.map((questao: Question) => ({
-      questao_id: questao.id,
-      resposta: '',
-      pontuacao_obtida: 0
-    }));
-
-    const appliedTestData = {
-      candidato_id,
-      modelo_prova_id,
-      questoes_respostas: JSON.stringify(questoesRespostas),
-      status: 'em_andamento',
-      data_inicio: new Date().toISOString(),
-      tempo_restante: model.tempo_limite
+    console.log('[Theoretical Test] 4. Criando nova prova...');
+    console.log('[Theoretical Test] Tabela ID:', PROVAS_TEORICAS_APLICADAS_TABLE_ID);
+    
+    // Criar nova prova aplicada (similar ao comportamental)
+    const appliedTestData: any = {
+      candidato: [parseInt(finalCandidateId)], // Link field - array com ID do candidato
+      modelo_da_prova: [parseInt(finalModeloId)], // Link field - array com ID do modelo
+      data_de_geracao: new Date().toISOString(), // Data de geração
+      pontuacao_total: 0, // Pontuação inicial zero
+      status: 'Pendente' // Igual ao comportamental: Pendente, Processando, Concluído, Erro
     };
 
+    // Adicionar recrutador se fornecido (Link to table usuarios)
+    if (recruiterId) {
+      appliedTestData.recrutador = [parseInt(recruiterId)];
+      console.log('[Theoretical Test] Adicionado recrutador:', recruiterId);
+    }
+
+    if (recruiterId) {
+      // Se tiver recrutador, adicionar ao registro
+      appliedTestData.recrutador = [parseInt(recruiterId)];
+      console.log('[Theoretical Test] Adicionado recrutador:', recruiterId);
+    }
+
+    console.log('[Theoretical Test] Dados para criar:', JSON.stringify(appliedTestData, null, 2));
+    
     const createdTest = await baserowServer.post(PROVAS_TEORICAS_APLICADAS_TABLE_ID, appliedTestData);
+    console.log('[Theoretical Test] ✅ Prova criada com ID:', createdTest.id);
 
     // Enviar notificação via N8N (se configurado)
     if (N8N_THEORETICAL_WEBHOOK_URL) {
@@ -1639,8 +2045,9 @@ app.post('/api/theoretical-test/generate', async (req: Request, res: Response) =
             },
             prova: {
               id: createdTest.id,
-              nome_modelo: model.nome,
-              tempo_limite: model.tempo_limite
+              nome_modelo: model.titulo,
+              tempo_limite: model.tempo_limite,
+              link: `${FRONTEND_URL}/prova-teorica/${createdTest.id}`
             }
           })
         });
@@ -1649,17 +2056,24 @@ app.post('/api/theoretical-test/generate', async (req: Request, res: Response) =
       }
     }
 
-    const formattedTest = {
-      id: createdTest.id,
-      candidato_id: createdTest.candidato_id,
-      modelo_prova_id: createdTest.modelo_prova_id,
-      questoes_respostas: JSON.parse(createdTest.questoes_respostas),
-      status: createdTest.status,
-      data_inicio: createdTest.data_inicio,
-      tempo_restante: createdTest.tempo_restante
-    };
-
-    res.status(201).json({ success: true, data: formattedTest });
+    console.log('[Theoretical Test] Prova criada com sucesso:', createdTest.id);
+    
+    // Retorno compatível com frontend existente
+    res.status(201).json({ 
+      success: true, 
+      data: {
+        id: createdTest.id,
+        candidato_id: finalCandidateId,
+        modelo_prova_id: finalModeloId,
+        status: 'em_andamento',
+        data_inicio: createdTest.data_de_geracao,
+        link: `${FRONTEND_URL}/prova-teorica/${createdTest.id}`
+      },
+      testId: createdTest.id, // Manter para compatibilidade futura
+      link: `${FRONTEND_URL}/prova-teorica/${createdTest.id}`,
+      candidateName: candidate.nome,
+      modelName: model.titulo
+    });
   } catch (error: unknown) {
     console.error('Erro ao gerar prova para candidato:', error);
     res.status(500).json({ error: 'Não foi possível gerar a prova para o candidato.' });
@@ -1673,7 +2087,7 @@ app.get('/api/theoretical-test/:candidateId', async (req: Request, res: Response
   try {
     const { results } = await baserowServer.get(
       PROVAS_TEORICAS_APLICADAS_TABLE_ID,
-      `?filter__candidato_id=${candidateId}&filter__status=em_andamento`
+      `?filter__candidato=${candidateId}`
     );
 
     if (!results || results.length === 0) {
@@ -1682,15 +2096,27 @@ app.get('/api/theoretical-test/:candidateId', async (req: Request, res: Response
 
     const appliedTest = results[0];
     
+    // Verificar se a prova já foi respondida (false = finalizada)
+    if (appliedTest.status === false) {
+      return res.status(400).json({ 
+        error: 'Esta prova já foi respondida e não pode ser feita novamente.',
+        already_completed: true 
+      });
+    }
+    
     // Buscar o modelo da prova para obter as questões
-    const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(appliedTest.modelo_prova_id));
+    // appliedTest.modelo_da_prova é um array de links, pegar o primeiro ID
+    const modeloId = appliedTest.modelo_da_prova?.[0] || appliedTest.modelo_da_prova;
+    const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(modeloId));
     
     if (!model) {
       return res.status(404).json({ error: 'Modelo de prova não encontrado.' });
     }
 
-    const questoes = JSON.parse(model.questoes || '[]');
-    const questoesRespostas = JSON.parse(appliedTest.questoes_respostas || '[]');
+    const questoes = typeof model.perguntas === 'string' 
+      ? JSON.parse(model.perguntas || '[]')
+      : (Array.isArray(model.perguntas) ? model.perguntas : []);
+    const questoesRespostas = JSON.parse(appliedTest.respostas_candidato || '[]');
 
     // Combinar questões com respostas (sem mostrar gabarito)
     const questoesParaCandidato = questoes.map((questao: Question) => {
@@ -1707,13 +2133,12 @@ app.get('/api/theoretical-test/:candidateId', async (req: Request, res: Response
 
     const testData = {
       id: appliedTest.id,
-      modelo_nome: model.nome,
+      modelo_nome: model.titulo, // Campo correto no modelo
       modelo_descricao: model.descricao,
       tempo_limite: model.tempo_limite,
-      tempo_restante: appliedTest.tempo_restante,
       questoes: questoesParaCandidato,
-      status: appliedTest.status,
-      data_inicio: appliedTest.data_inicio
+      status: appliedTest.status, // Boolean: true = em andamento, false = finalizada
+      data_inicio: appliedTest.data_de_geracao // Campo correto
     };
 
     res.json({ success: true, data: testData });
@@ -1739,7 +2164,7 @@ app.put('/api/theoretical-test/:testId/submit', async (req: Request, res: Respon
       return res.status(404).json({ error: 'Prova não encontrada.' });
     }
 
-    if (appliedTest.status !== 'em_andamento') {
+    if (appliedTest.status === false) {
       return res.status(400).json({ error: 'Esta prova não está mais em andamento.' });
     }
 
@@ -1749,7 +2174,9 @@ app.put('/api/theoretical-test/:testId/submit', async (req: Request, res: Respon
       return res.status(404).json({ error: 'Modelo de prova não encontrado.' });
     }
 
-    const questoes = JSON.parse(model.questoes || '[]');
+    const questoes = typeof model.perguntas === 'string' 
+      ? JSON.parse(model.perguntas || '[]')
+      : (Array.isArray(model.perguntas) ? model.perguntas : []);
     let pontuacaoTotal = 0;
 
     // Calcular pontuação para cada resposta
@@ -1778,11 +2205,10 @@ app.put('/api/theoretical-test/:testId/submit', async (req: Request, res: Respon
 
     // Atualizar prova com respostas e status finalizado
     const updateData = {
-      questoes_respostas: JSON.stringify(questoesRespostasAtualizadas),
+      respostas_candidato: JSON.stringify(questoesRespostasAtualizadas), // Campo correto
       pontuacao_total: pontuacaoTotal,
-      status: 'finalizada',
-      data_finalizacao: new Date().toISOString(),
-      tempo_restante: 0
+      status: 'Concluído', // Status correto: Concluído quando finalizada
+      data_de_resposta: new Date().toISOString() // Campo correto para data de finalização
     };
 
     const updatedTest = await baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId), updateData);
@@ -1790,7 +2216,11 @@ app.put('/api/theoretical-test/:testId/submit', async (req: Request, res: Respon
     // Enviar notificação de prova finalizada via N8N
     if (N8N_THEORETICAL_WEBHOOK_URL) {
       try {
-        const candidate = await baserowServer.getRow(CANDIDATOS_TABLE_ID, parseInt(appliedTest.candidato_id));
+        // Extrair ID do candidato (pode vir como array ou número)
+        const candidatoId = Array.isArray(appliedTest.candidato) 
+          ? appliedTest.candidato[0] 
+          : appliedTest.candidato;
+        const candidate = await baserowServer.getRow(CANDIDATOS_TABLE_ID, parseInt(candidatoId));
         await fetch(N8N_THEORETICAL_WEBHOOK_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1803,9 +2233,9 @@ app.put('/api/theoretical-test/:testId/submit', async (req: Request, res: Respon
             },
             prova: {
               id: updatedTest.id,
-              nome_modelo: model.nome,
+              nome_modelo: model.titulo, // Campo correto
               pontuacao_total: pontuacaoTotal,
-              data_finalizacao: updateData.data_finalizacao
+              data_finalizacao: updateData.data_de_resposta // Campo correto
             }
           })
         });
@@ -1816,8 +2246,7 @@ app.put('/api/theoretical-test/:testId/submit', async (req: Request, res: Respon
 
     res.json({ 
       success: true, 
-      message: 'Prova submetida com sucesso.',
-      pontuacao_total: pontuacaoTotal
+      message: 'Prova submetida com sucesso! Obrigado por participar. Em breve entraremos em contato com o resultado.'
     });
   } catch (error: unknown) {
     console.error('Erro ao submeter prova:', error);
@@ -1830,27 +2259,40 @@ app.get('/api/theoretical-test/results/:candidateId', async (req: Request, res: 
   const { candidateId } = req.params;
 
   try {
+    // Buscar provas do candidato usando o campo de Link correto
     const { results } = await baserowServer.get(
       PROVAS_TEORICAS_APLICADAS_TABLE_ID,
-      `?filter__candidato_id=${candidateId}&order_by=-data_finalizacao`
+      `?filter__candidato=${candidateId}&order_by=-data_de_resposta`
     );
 
     if (!results || results.length === 0) {
       return res.json({ success: true, data: [] });
     }
 
-    const formattedResults = await Promise.all(results.map(async (test: any) => {
+    const formattedResults = await Promise.all(results.map(async (test: {
+      id: number;
+      modelo_da_prova: any[];
+      pontuacao_total?: number;
+      data_de_resposta?: string;
+      status: string;
+    }) => {
       // Buscar modelo para obter nome
-      const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(test.modelo_prova_id));
+      let modelName = 'Modelo não encontrado';
+      if (test.modelo_da_prova && test.modelo_da_prova.length > 0) {
+        try {
+          const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, test.modelo_da_prova[0].id);
+          modelName = model?.titulo || 'Modelo não encontrado';
+        } catch (error) {
+          console.error('Erro ao buscar modelo:', error);
+        }
+      }
       
       return {
         id: test.id,
-        modelo_nome: model?.nome || 'Modelo não encontrado',
-        pontuacao_total: test.pontuacao_total,
-        status: test.status,
-        data_inicio: test.data_inicio,
-        data_finalizacao: test.data_finalizacao,
-        tempo_restante: test.tempo_restante
+        modelo_nome: modelName,
+        pontuacao_total: test.pontuacao_total || 0,
+        status: test.status || 'Pendente', // Usar o status string diretamente
+        data_finalizacao: test.data_de_resposta
       };
     }));
 
@@ -1858,6 +2300,224 @@ app.get('/api/theoretical-test/results/:candidateId', async (req: Request, res: 
   } catch (error: unknown) {
     console.error('Erro ao buscar resultados das provas:', error);
     res.status(500).json({ error: 'Não foi possível buscar os resultados das provas.' });
+  }
+});
+
+
+
+// DELETE /api/theoretical-test/:candidateId/cancel - Cancelar prova em andamento
+app.delete('/api/theoretical-test/:candidateId/cancel', async (req: Request, res: Response) => {
+  try {
+    const { candidateId } = req.params;
+
+    // Buscar prova em andamento
+    const { results: existingTests } = await baserowServer.get(
+      PROVAS_TEORICAS_APLICADAS_TABLE_ID, 
+      `?filter__candidato=${candidateId}`
+    );
+
+    if (!existingTests || existingTests.length === 0) {
+      return res.status(404).json({ 
+        error: 'Nenhuma prova em andamento encontrada para este candidato.' 
+      });
+    }
+
+    const testToCancel = existingTests[0];
+
+    // Atualizar status para cancelada
+    await baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, testToCancel.id, {
+      status: 'Processando', // Usar valor válido do Baserow - será testado
+      data_de_resposta: new Date().toISOString(), // Data de cancelamento
+      observacoes: 'Prova cancelada para permitir nova geração'
+    });
+
+    res.json({ 
+      success: true, 
+      message: 'Prova cancelada com sucesso. Agora é possível gerar uma nova prova.' 
+    });
+  } catch (error: unknown) {
+    console.error('Erro ao cancelar prova:', error);
+    res.status(500).json({ error: 'Não foi possível cancelar a prova.' });
+  }
+});
+
+// DELETE /api/theoretical-test/delete/:testId - Excluir prova permanentemente
+app.delete('/api/theoretical-test/delete/:testId', async (req: Request, res: Response) => {
+  const { testId } = req.params;
+  
+  if (!testId) {
+    return res.status(400).json({ error: 'ID da prova é obrigatório.' });
+  }
+  
+  try {
+    console.log(`[Theoretical Test] Excluindo prova ${testId} permanentemente`);
+    
+    // Verificar se a prova existe antes de excluir
+    const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+    if (!appliedTest) {
+      return res.status(404).json({ error: 'Prova não encontrada.' });
+    }
+    
+    // Excluir a prova permanentemente
+    await baserowServer.delete(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+    
+    console.log(`[Theoretical Test] Prova ${testId} excluída com sucesso`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Prova excluída permanentemente.' 
+    });
+  } catch (error: unknown) {
+    console.error(`[Theoretical Test] Erro ao excluir prova:`, error);
+    res.status(500).json({ error: 'Não foi possível excluir a prova.' });
+  }
+});
+
+// GET /api/theoretical-test/review/:testId - Buscar gabarito e respostas da prova para revisão
+app.get('/api/theoretical-test/review/:testId', async (req: Request, res: Response) => {
+  const { testId } = req.params;
+  
+  if (!testId) {
+    return res.status(400).json({ error: 'ID da prova é obrigatório.' });
+  }
+  
+  try {
+    console.log(`[Theoretical Test] Buscando gabarito da prova ${testId}`);
+    
+    // Buscar a prova aplicada
+    const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+    if (!appliedTest) {
+      return res.status(404).json({ error: 'Prova não encontrada.' });
+    }
+    
+    // Buscar dados do candidato
+    let candidateName = 'Candidato não encontrado';
+    if (appliedTest.candidato && appliedTest.candidato.length > 0) {
+      try {
+        const candidate = await baserowServer.getRow(CANDIDATOS_TABLE_ID, appliedTest.candidato[0].id);
+        if (candidate) {
+          candidateName = candidate.nome;
+        }
+      } catch (error) {
+        console.error('[Review] Erro ao buscar candidato:', error);
+      }
+    }
+    
+    // Buscar modelo da prova
+    let modelData = null;
+    if (appliedTest.modelo_da_prova && appliedTest.modelo_da_prova.length > 0) {
+      try {
+        const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, appliedTest.modelo_da_prova[0].id);
+        if (model) {
+          modelData = {
+            id: model.id,
+            titulo: model.titulo,
+            descricao: model.descricao,
+            questoes: typeof model.perguntas === 'string' 
+              ? JSON.parse(model.perguntas || '[]')
+              : (Array.isArray(model.perguntas) ? model.perguntas : [])
+          };
+        }
+      } catch (error) {
+        console.error('[Review] Erro ao buscar modelo:', error);
+      }
+    }
+    
+    if (!modelData) {
+      return res.status(404).json({ error: 'Modelo da prova não encontrado.' });
+    }
+    
+    // Parse das respostas do candidato
+    let respostasCandidato = {};
+    try {
+      respostasCandidato = appliedTest.respostas_candidato 
+        ? JSON.parse(appliedTest.respostas_candidato) 
+        : {};
+    } catch (error) {
+      console.error('[Review] Erro ao parsear respostas:', error);
+    }
+    
+    res.json({ 
+      success: true, 
+      data: { 
+        testId: appliedTest.id,
+        candidato_nome: candidateName,
+        modelo_prova: modelData,
+        respostas_candidato: respostasCandidato,
+        pontuacao_total: appliedTest.pontuacao_total || 0,
+        status: appliedTest.status,
+        data_resposta: appliedTest.data_de_resposta,
+        data_geracao: appliedTest.data_de_geracao
+      } 
+    });
+  } catch (error: unknown) {
+    console.error('[Review] Erro:', error);
+    res.status(500).json({ error: 'Não foi possível buscar os dados da prova.' });
+  }
+});
+
+// GET /api/theoretical-test-results/:candidateId - Buscar resultados das provas teóricas do candidato
+app.get('/api/theoretical-test-results/:candidateId', async (req: Request, res: Response) => {
+  try {
+    const { candidateId } = req.params;
+
+    // Buscar todas as provas do candidato
+    const response = await baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}`);
+    
+    if (!response.results || !Array.isArray(response.results)) {
+      return res.json({ success: true, data: [] });
+    }
+
+    // Para cada prova, buscar dados do modelo
+    const testsWithModels = await Promise.all(
+      response.results.map(async (test: {
+        id: number;
+        modelo_da_prova: number[] | number; // Link field pode ser array ou número
+        status: boolean; // Boolean em vez de string
+        pontuacao_total?: number;
+        data_de_resposta?: string;
+      }) => {
+        try {
+          // Extrair ID do modelo (pode vir como array ou número direto)
+          const modeloId = Array.isArray(test.modelo_da_prova) 
+            ? test.modelo_da_prova[0] 
+            : test.modelo_da_prova;
+            
+          const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, modeloId);
+          return {
+            id: test.id,
+            modelo_prova: {
+              nome: model?.titulo || 'Modelo não encontrado' // Campo correto
+            },
+            status: test.status ? 'em_andamento' : 'finalizada', // Converter boolean para string
+            pontuacao: test.pontuacao_total,
+            total_questoes: model.perguntas 
+              ? (typeof model.perguntas === 'string' 
+                 ? JSON.parse(model.perguntas).length 
+                 : (Array.isArray(model.perguntas) ? model.perguntas.length : 0))
+              : 0,
+            data_finalizacao: test.data_de_resposta // Campo correto
+          };
+        } catch (error) {
+          console.error('Erro ao buscar modelo da prova:', error);
+          return {
+            id: test.id,
+            modelo_prova: { nome: 'Modelo não encontrado' },
+            status: test.status ? 'em_andamento' : 'finalizada',
+            pontuacao: test.pontuacao_total,
+            acertos: 0, // Será calculado a partir das respostas se necessário
+            total_questoes: 0,
+            data_finalizacao: test.data_de_resposta
+          };
+        }
+      })
+    );
+
+    res.json({ success: true, data: testsWithModels });
+
+  } catch (error: unknown) {
+    console.error('Erro ao buscar resultados das provas teóricas:', error);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
   }
 });
 
@@ -1881,4 +2541,20 @@ app.listen(port, () => {
   console.log(`🗄️  Baserow API: ${process.env.VITE_BASEROW_API_KEY ? 'Configurado' : 'NÃO CONFIGURADO'}`);
   console.log(`🤖 N8N Webhooks: ${process.env.TESTE_COMPORTAMENTAL_WEBHOOK_URL ? 'Configurado' : 'NÃO CONFIGURADO'}`);
   console.log('✅ Servidor pronto para receber requisições!');
+}).on('error', (err: Error & { code?: string }) => {
+  console.error('❌ Erro ao iniciar servidor:', err.message);
+  if (err.code === 'EADDRINUSE') {
+    console.error(`⚠️  A porta ${port} já está em uso. Tente usar uma porta diferente.`);
+  }
+  process.exit(1);
+});
+
+// Tratamento de erros não capturadas
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Rejeição não tratada em:', promise, 'motivo:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('❌ Exceção não capturada:', error);
+  process.exit(1);
 });

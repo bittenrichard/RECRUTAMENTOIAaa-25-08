@@ -19,7 +19,9 @@ import SettingsPage from './features/settings/components/SettingsPage';
 import CandidateDatabasePage from './features/database/components/CandidateDatabasePage';
 import AgendaPage from './features/agenda/components/AgendaPage';
 import { PublicTestPage } from './features/behavioral/components';
-import { TheoreticalMainPage, TheoreticalTestPage } from './features/theoretical';
+import { TheoreticalMainPage } from './features/theoretical';
+import PublicTheoreticalTestPage from './features/theoretical/components/PublicTheoreticalTestPage';
+import GabaritoReviewPage from './features/theoretical/components/GabaritoReviewPage';
 import ProtectedRoute from './shared/components/Layout/ProtectedRoute';
 import MainLayout from './shared/components/Layout/MainLayout';
 
@@ -43,6 +45,15 @@ function App() {
   if (path.startsWith('/teste/')) {
     const testId = path.split('/')[2];
     return <PublicTestPage testId={testId} />;
+  }
+  
+  if (path.startsWith('/prova-teorica/')) {
+    const testId = path.split('/')[2];
+    return <PublicTheoreticalTestPage testId={testId} />;
+  }
+  
+  if (path.startsWith('/gabarito-teorica/')) {
+    return <GabaritoReviewPage />;
   }
 
   useEffect(() => {

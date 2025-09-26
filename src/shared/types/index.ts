@@ -66,6 +66,7 @@ export interface Question {
   enunciado: string;
   opcoes?: string[]; // Para múltipla escolha
   resposta_correta?: string; // Para verdadeiro/falso e múltipla escolha
+  resposta_esperada?: string; // Para questões dissertativas
   pontuacao: number;
 }
 
@@ -76,6 +77,8 @@ export interface TestModel {
   tempo_limite: number; // em minutos
   questoes: Question[];
   ativo: boolean;
+  criado_por?: number; // ID do usuário que criou o modelo
+  is_template?: boolean; // true se for um template (criado pelo usuário 1)
   created_at?: string;
   updated_at?: string;
 }

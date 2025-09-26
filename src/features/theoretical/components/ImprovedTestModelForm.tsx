@@ -38,7 +38,6 @@ const ImprovedTestModelForm: React.FC<ImprovedTestModelFormProps> = ({
     nome: '',
     categoria: '',
     descricao: '',
-    nivel_dificuldade: 'Médio',
     tempo_limite: 30,
     ativo: true
   });
@@ -52,9 +51,8 @@ const ImprovedTestModelForm: React.FC<ImprovedTestModelFormProps> = ({
     if (model) {
       setFormData({
         nome: model.nome,
-        categoria: (model as any).categoria || '',
+        categoria: (model as { categoria?: string }).categoria || '',
         descricao: model.descricao,
-        nivel_dificuldade: (model as any).nivel_dificuldade || 'Médio',
         tempo_limite: model.tempo_limite,
         ativo: model.ativo
       });
@@ -294,21 +292,6 @@ const ImprovedTestModelForm: React.FC<ImprovedTestModelFormProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Nível de Dificuldade
-                  </label>
-                  <select
-                    value={formData.nivel_dificuldade}
-                    onChange={(e) => setFormData({ ...formData, nivel_dificuldade: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="Fácil">Fácil</option>
-                    <option value="Médio">Médio</option>
-                    <option value="Difícil">Difícil</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Status
                   </label>
                   <select
@@ -537,21 +520,6 @@ const ImprovedQuestionEditor: React.FC<ImprovedQuestionEditorProps> = ({
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Dificuldade
-              </label>
-              <select
-                value={(questao as any).dificuldade || 'Médio'}
-                onChange={(e) => onUpdate({ dificuldade: e.target.value } as any)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-              >
-                <option value="Fácil">Fácil</option>
-                <option value="Médio">Médio</option>
-                <option value="Difícil">Difícil</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
                 Peso
               </label>
               <input
@@ -686,8 +654,8 @@ const ImprovedQuestionEditor: React.FC<ImprovedQuestionEditorProps> = ({
                 Resposta Esperada (para correção manual)
               </label>
               <textarea
-                value={(questao as any).resposta_esperada || ''}
-                onChange={(e) => onUpdate({ resposta_esperada: e.target.value } as any)}
+                value={(questao as { resposta_esperada?: string }).resposta_esperada || ''}
+                onChange={(e) => onUpdate({ resposta_esperada: e.target.value })}
                 rows={3}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 placeholder="Resposta modelo ou critérios de avaliação..."

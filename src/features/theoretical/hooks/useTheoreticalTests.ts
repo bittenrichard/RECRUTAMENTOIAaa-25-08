@@ -1,6 +1,7 @@
 // Local: src/features/theoretical/hooks/useTheoreticalTests.ts
 
 import { useState, useCallback } from 'react';
+import { useAuth } from '../../auth/hooks/useAuth';
 import { 
   TestModel, 
   AppliedTest, 
@@ -36,6 +37,7 @@ interface UseTheoreticalTestsReturn {
 }
 
 export const useTheoreticalTests = (): UseTheoreticalTestsReturn => {
+  const { profile } = useAuth();
   const [models, setModels] = useState<TestModel[]>([]);
   const [currentTest, setCurrentTestState] = useState<CandidateTestData | null>(null);
   const [results, setResults] = useState<TestResult[]>([]);
@@ -54,9 +56,12 @@ export const useTheoreticalTests = (): UseTheoreticalTestsReturn => {
     options: RequestInit = {}
   ) => {
     const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+    const userId = profile?.id || '1'; // Default para usuário 1 se não estiver logado
+    
     const response = await fetch(`${baseUrl}${endpoint}`, {
       headers: {
         'Content-Type': 'application/json',
+        'x-user-id': String(userId), // Incluir ID do usuário no header
         ...options.headers,
       },
       ...options,
@@ -68,7 +73,7 @@ export const useTheoreticalTests = (): UseTheoreticalTestsReturn => {
     }
 
     return response.json();
-  }, []);
+  }, [profile?.id]);
 
   // ========================================
   // OPERAÇÕES CRUD PARA MODELOS DE PROVA
@@ -78,7 +83,7 @@ export const useTheoreticalTests = (): UseTheoreticalTestsReturn => {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiRequest('/api/theoretical-models');
+      const response = await apiRequest('/api/public/theoretical-models');
       setModels(response.data || []);
     } catch (error) {
       handleApiError(error, 'Erro ao carregar modelos de prova');
@@ -91,9 +96,10 @@ export const useTheoreticalTests = (): UseTheoreticalTestsReturn => {
     setLoading(true);
     setError(null);
     try {
+      const userId = profile?.id || '1';
       const response = await apiRequest('/api/theoretical-models', {
         method: 'POST',
-        body: JSON.stringify(modelData),
+        body: JSON.stringify({ ...modelData, userId }),
       });
       
       const newModel = response.data;
@@ -105,7 +111,7 @@ export const useTheoreticalTests = (): UseTheoreticalTestsReturn => {
     } finally {
       setLoading(false);
     }
-  }, [apiRequest, handleApiError]);
+  }, [apiRequest, handleApiError, profile?.id]);
 
   const updateModel = useCallback(async (id: string, modelData: Partial<TestModel>): Promise<TestModel> => {
     setLoading(true);
