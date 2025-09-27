@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
 import { ArrowLeft, CheckCircle, XCircle, Clock, User, Award, BookOpen } from 'lucide-react';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
@@ -7,15 +6,16 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 interface Question {
   id: number;
   pergunta: string;
+  enunciado?: string;
   opcoes: string[];
-  resposta_correta: number;
-  tipo: 'multipla_escolha' | 'verdadeiro_falso';
+  resposta_correta: string;
+  tipo: 'multipla_escolha' | 'verdadeiro_falso' | 'dissertativa';
+  pontuacao?: number;
 }
 
 interface CandidateAnswer {
-  questao_id: number;
-  resposta_selecionada: number;
-  tempo_resposta?: number;
+  question_id: number;
+  answer: string;
 }
 
 interface GabaritoData {
@@ -34,27 +34,36 @@ interface GabaritoData {
 }
 
 interface GabaritoReviewPageProps {
-  testId?: string;
+  testId: string;
 }
 
-const GabaritoReviewPage: React.FC<GabaritoReviewPageProps> = ({ testId: propTestId }) => {
-  const { testId: paramTestId } = useParams<{ testId: string }>();
-  const testId = propTestId || paramTestId;
+const GabaritoReviewPage: React.FC<GabaritoReviewPageProps> = ({ testId }) => {
   const [gabaritoData, setGabaritoData] = useState<GabaritoData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const loadGabarito = async () => {
+      console.log('[GabaritoReviewPage] testId recebido:', testId);
+      console.log('[GabaritoReviewPage] typeof testId:', typeof testId);
+      
       if (!testId) {
+        console.error('[GabaritoReviewPage] ID do teste não fornecido');
         setError('ID do teste não fornecido');
         setLoading(false);
         return;
       }
 
       try {
-        const response = await fetch(`${API_BASE_URL}/api/theoretical-test/review/${testId}`);
+        setLoading(true);
+        const url = `${API_BASE_URL}/api/theoretical-test/review/${testId}`;
+        console.log('[GabaritoReviewPage] Fazendo requisição para:', url);
+        
+        const response = await fetch(url);
+        console.log('[GabaritoReviewPage] Response status:', response.status);
+        
         const data = await response.json();
+        console.log('[GabaritoReviewPage] Response data:', data);
 
         if (!response.ok || !data.success) {
           throw new Error(data.error || 'Erro ao carregar gabarito');
@@ -74,7 +83,11 @@ const GabaritoReviewPage: React.FC<GabaritoReviewPageProps> = ({ testId: propTes
 
   const isCorrect = (question: Question, candidateAnswer: CandidateAnswer | undefined) => {
     if (!candidateAnswer) return false;
-    return candidateAnswer.resposta_selecionada === question.resposta_correta;
+    return candidateAnswer.answer === question.resposta_correta;
+  };
+
+  const getCandidateAnswerForQuestion = (questionId: number) => {
+    return gabaritoData?.candidateAnswers.find(answer => answer.question_id === questionId);
   };
 
   const getPercentage = () => {
@@ -86,8 +99,8 @@ const GabaritoReviewPage: React.FC<GabaritoReviewPageProps> = ({ testId: propTes
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Carregando gabarito...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Carregando gabarito...</p>
         </div>
       </div>
     );
@@ -96,15 +109,15 @@ const GabaritoReviewPage: React.FC<GabaritoReviewPageProps> = ({ testId: propTes
   if (error) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center max-w-md mx-auto px-4">
-          <XCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-gray-900 mb-2">Erro ao Carregar Gabarito</h2>
-          <p className="text-gray-600 mb-6">{error}</p>
-          <button 
-            onClick={() => window.close()} 
-            className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
+        <div className="text-center">
+          <XCircle size={48} className="text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Erro ao carregar gabarito</h2>
+          <p className="text-gray-600 mb-4">{error}</p>
+          <button
+            onClick={() => window.history.back()}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
-            Fechar
+            Voltar
           </button>
         </div>
       </div>
@@ -115,7 +128,7 @@ const GabaritoReviewPage: React.FC<GabaritoReviewPageProps> = ({ testId: propTes
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-gray-600">Nenhum dado encontrado</p>
+          <p className="text-gray-600">Nenhum dado encontrado.</p>
         </div>
       </div>
     );
@@ -124,15 +137,16 @@ const GabaritoReviewPage: React.FC<GabaritoReviewPageProps> = ({ testId: propTes
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-4xl mx-auto px-4 py-4">
+      <div className="bg-white border-b border-gray-200">
+        <div className="max-w-4xl mx-auto px-4 py-6">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <button 
-                onClick={() => window.close()}
-                className="text-gray-500 hover:text-gray-700"
+            <div className="flex items-center space-x-4">
+              <button
+                onClick={() => window.history.back()}
+                className="flex items-center text-gray-600 hover:text-gray-900 transition-colors"
               >
-                <ArrowLeft size={24} />
+                <ArrowLeft size={20} className="mr-2" />
+                Voltar
               </button>
               <div>
                 <h1 className="text-xl font-bold text-gray-900">Gabarito da Prova Teórica</h1>
@@ -202,114 +216,188 @@ const GabaritoReviewPage: React.FC<GabaritoReviewPageProps> = ({ testId: propTes
         {/* Questões e Respostas */}
         <div className="space-y-6">
           {gabaritoData.questions.map((question, index) => {
-            const candidateAnswer = gabaritoData.candidateAnswers.find(
-              answer => answer.questao_id === question.id
-            );
+            const candidateAnswer = getCandidateAnswerForQuestion(question.id);
             const correct = isCorrect(question, candidateAnswer);
 
             return (
-              <div key={question.id} className="bg-white rounded-lg shadow-sm p-6">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-sm font-medium">
+              <div key={question.id} className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                {/* Header da Questão */}
+                <div className={`px-6 py-4 ${correct ? 'bg-green-50 border-b-2 border-green-200' : 'bg-red-50 border-b-2 border-red-200'}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <span className="bg-white text-gray-700 px-3 py-1 rounded-full text-sm font-semibold border">
                         Questão {index + 1}
                       </span>
-                      <span className={`px-2 py-1 rounded text-sm font-medium ${
+                      <div className={`flex items-center space-x-2 px-3 py-1 rounded-full ${
                         correct 
-                          ? 'bg-green-100 text-green-700' 
-                          : 'bg-red-100 text-red-700'
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-red-100 text-red-800'
                       }`}>
-                        {correct ? 'Correto' : 'Incorreto'}
-                      </span>
+                        {correct ? <CheckCircle size={16} /> : <XCircle size={16} />}
+                        <span className="text-sm font-semibold">
+                          {correct ? 'ACERTOU' : 'ERROU'}
+                        </span>
+                      </div>
                     </div>
-                    <h3 className="text-lg font-medium text-gray-900 mb-4">{question.pergunta}</h3>
-                  </div>
-                  <div className={`ml-4 ${correct ? 'text-green-500' : 'text-red-500'}`}>
-                    {correct ? <CheckCircle size={24} /> : <XCircle size={24} />}
+                    <div className="text-sm text-gray-600">
+                      Pontos: {question.pontuacao || 1}
+                    </div>
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  {question.tipo === 'multipla_escolha' ? (
-                    question.opcoes.map((opcao, opcaoIndex) => {
-                      const isCorrectAnswer = opcaoIndex === question.resposta_correta;
-                      const isSelectedAnswer = candidateAnswer?.resposta_selecionada === opcaoIndex;
-                      
-                      return (
-                        <div
-                          key={opcaoIndex}
-                          className={`p-3 rounded-lg border-2 ${
-                            isCorrectAnswer
-                              ? 'border-green-500 bg-green-50'
-                              : isSelectedAnswer && !isCorrectAnswer
-                              ? 'border-red-500 bg-red-50'
-                              : 'border-gray-200 bg-gray-50'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-gray-900">{opcao}</span>
-                            <div className="flex items-center space-x-2">
-                              {isCorrectAnswer && (
-                                <span className="text-green-600 text-sm font-medium">Resposta Correta</span>
-                              )}
-                              {isSelectedAnswer && !isCorrectAnswer && (
-                                <span className="text-red-600 text-sm font-medium">Resposta do Candidato</span>
-                              )}
-                              {isSelectedAnswer && isCorrectAnswer && (
-                                <span className="text-green-600 text-sm font-medium">Selecionada (Correta)</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    // Verdadeiro/Falso
-                    <div className="space-y-2">
-                      {[0, 1].map(opcaoIndex => {
-                        const opcaoTexto = opcaoIndex === 0 ? 'Verdadeiro' : 'Falso';
-                        const isCorrectAnswer = opcaoIndex === question.resposta_correta;
-                        const isSelectedAnswer = candidateAnswer?.resposta_selecionada === opcaoIndex;
+                {/* Conteúdo da Questão */}
+                <div className="p-6">
+                  <h3 className="text-lg font-medium text-gray-900 mb-6 leading-relaxed">
+                    {question.enunciado || question.pergunta}
+                  </h3>
+
+                  {/* Alternativas - Múltipla Escolha */}
+                  {question.tipo === 'multipla_escolha' && question.opcoes && (
+                    <div className="space-y-3">
+                      <h4 className="font-semibold text-gray-700 text-sm uppercase tracking-wide mb-3">
+                        Alternativas:
+                      </h4>
+                      {question.opcoes.map((opcao, opcaoIndex) => {
+                        const isCorrectAnswer = opcao === question.resposta_correta;
+                        const isSelectedAnswer = candidateAnswer?.answer === opcao;
+                        
+                        let cardStyle = '';
+                        let badgeStyle = '';
+                        let badgeText = '';
+                        let icon = null;
+                        
+                        if (isCorrectAnswer && isSelectedAnswer) {
+                          // Acertou
+                          cardStyle = 'border-2 border-green-500 bg-green-50';
+                          badgeStyle = 'bg-green-100 text-green-800 border border-green-300';
+                          badgeText = 'RESPOSTA CORRETA ✓';
+                          icon = <CheckCircle size={18} className="text-green-600" />;
+                        } else if (isCorrectAnswer && !isSelectedAnswer) {
+                          // Resposta correta não selecionada
+                          cardStyle = 'border-2 border-green-500 bg-green-50';
+                          badgeStyle = 'bg-green-100 text-green-800 border border-green-300';
+                          badgeText = 'RESPOSTA CORRETA';
+                          icon = <CheckCircle size={18} className="text-green-600" />;
+                        } else if (!isCorrectAnswer && isSelectedAnswer) {
+                          // Errou - selecionou incorreta
+                          cardStyle = 'border-2 border-red-500 bg-red-50';
+                          badgeStyle = 'bg-red-100 text-red-800 border border-red-300';
+                          badgeText = 'RESPOSTA ESCOLHIDA ✗';
+                          icon = <XCircle size={18} className="text-red-600" />;
+                        } else {
+                          // Opção neutra
+                          cardStyle = 'border border-gray-200 bg-white';
+                        }
                         
                         return (
-                          <div
-                            key={opcaoIndex}
-                            className={`p-3 rounded-lg border-2 ${
-                              isCorrectAnswer
-                                ? 'border-green-500 bg-green-50'
-                                : isSelectedAnswer && !isCorrectAnswer
-                                ? 'border-red-500 bg-red-50'
-                                : 'border-gray-200 bg-gray-50'
-                            }`}
-                          >
+                          <div key={opcaoIndex} className={`p-4 rounded-lg ${cardStyle} transition-all`}>
                             <div className="flex items-center justify-between">
-                              <span className="text-gray-900 font-medium">{opcaoTexto}</span>
-                              <div className="flex items-center space-x-2">
-                                {isCorrectAnswer && (
-                                  <span className="text-green-600 text-sm font-medium">Resposta Correta</span>
-                                )}
-                                {isSelectedAnswer && !isCorrectAnswer && (
-                                  <span className="text-red-600 text-sm font-medium">Resposta do Candidato</span>
-                                )}
-                                {isSelectedAnswer && isCorrectAnswer && (
-                                  <span className="text-green-600 text-sm font-medium">Selecionada (Correta)</span>
-                                )}
+                              <div className="flex items-center space-x-3 flex-1">
+                                <span className="flex-shrink-0 w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center text-sm font-semibold text-gray-600">
+                                  {String.fromCharCode(65 + opcaoIndex)}
+                                </span>
+                                <span className="text-gray-900 font-medium">{opcao}</span>
                               </div>
+                              {(isCorrectAnswer || isSelectedAnswer) && (
+                                <div className="flex items-center space-x-2">
+                                  {icon}
+                                  <span className={`px-2 py-1 rounded text-xs font-bold ${badgeStyle}`}>
+                                    {badgeText}
+                                  </span>
+                                </div>
+                              )}
                             </div>
                           </div>
                         );
                       })}
                     </div>
                   )}
-                </div>
 
-                {candidateAnswer?.tempo_resposta && (
-                  <div className="mt-4 text-sm text-gray-500">
-                    <Clock size={14} className="inline mr-1" />
-                    Tempo de resposta: {candidateAnswer.tempo_resposta}s
-                  </div>
-                )}
+                  {/* Verdadeiro/Falso */}
+                  {question.tipo === 'verdadeiro_falso' && (
+                    <div className="space-y-3">
+                      <h4 className="font-semibold text-gray-700 text-sm uppercase tracking-wide mb-3">
+                        Alternativas:
+                      </h4>
+                      {['Verdadeiro', 'Falso'].map((opcao, opcaoIndex) => {
+                        const isCorrectAnswer = opcao === question.resposta_correta;
+                        const isSelectedAnswer = candidateAnswer?.answer === opcao;
+                        
+                        let cardStyle = '';
+                        let badgeStyle = '';
+                        let badgeText = '';
+                        let icon = null;
+                        
+                        if (isCorrectAnswer && isSelectedAnswer) {
+                          cardStyle = 'border-2 border-green-500 bg-green-50';
+                          badgeStyle = 'bg-green-100 text-green-800 border border-green-300';
+                          badgeText = 'RESPOSTA CORRETA ✓';
+                          icon = <CheckCircle size={18} className="text-green-600" />;
+                        } else if (isCorrectAnswer && !isSelectedAnswer) {
+                          cardStyle = 'border-2 border-green-500 bg-green-50';
+                          badgeStyle = 'bg-green-100 text-green-800 border border-green-300';
+                          badgeText = 'RESPOSTA CORRETA';
+                          icon = <CheckCircle size={18} className="text-green-600" />;
+                        } else if (!isCorrectAnswer && isSelectedAnswer) {
+                          cardStyle = 'border-2 border-red-500 bg-red-50';
+                          badgeStyle = 'bg-red-100 text-red-800 border border-red-300';
+                          badgeText = 'RESPOSTA ESCOLHIDA ✗';
+                          icon = <XCircle size={18} className="text-red-600" />;
+                        } else {
+                          cardStyle = 'border border-gray-200 bg-white';
+                        }
+                        
+                        return (
+                          <div key={opcaoIndex} className={`p-4 rounded-lg ${cardStyle} transition-all`}>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-3">
+                                <span className={`px-3 py-1 rounded text-sm font-semibold ${
+                                  opcao === 'Verdadeiro' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'
+                                }`}>
+                                  {opcao}
+                                </span>
+                              </div>
+                              {(isCorrectAnswer || isSelectedAnswer) && (
+                                <div className="flex items-center space-x-2">
+                                  {icon}
+                                  <span className={`px-2 py-1 rounded text-xs font-bold ${badgeStyle}`}>
+                                    {badgeText}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Questão Dissertativa */}
+                  {question.tipo === 'dissertativa' && (
+                    <div className="space-y-4">
+                      <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-r-lg">
+                        <h4 className="text-sm font-semibold text-blue-800 mb-2 flex items-center">
+                          <span className="w-2 h-2 bg-blue-600 rounded-full mr-2"></span>
+                          Resposta do Candidato:
+                        </h4>
+                        <div className="bg-white p-3 rounded border text-gray-900 whitespace-pre-wrap">
+                          {candidateAnswer?.answer || 'Não respondida'}
+                        </div>
+                      </div>
+                      {question.resposta_correta && (
+                        <div className="bg-green-50 border-l-4 border-green-400 p-4 rounded-r-lg">
+                          <h4 className="text-sm font-semibold text-green-800 mb-2 flex items-center">
+                            <span className="w-2 h-2 bg-green-600 rounded-full mr-2"></span>
+                            Resposta Esperada:
+                          </h4>
+                          <div className="bg-white p-3 rounded border text-gray-900 whitespace-pre-wrap">
+                            {question.resposta_correta}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}

@@ -93,7 +93,14 @@ function App() {
                 {isDataLoading ? <LoadingSpinner /> : (
                   <Routes>
                     <Route path="/dashboard" element={<DashboardPage />} />
-                    <Route path="/nova-triagem" element={<NewScreeningPage />} />
+                    <Route path="/nova-triagem" element={<NewScreeningPage 
+                      onJobCreated={(newJob) => {
+                        // Adicionar a nova vaga ao store
+                        useDataStore.getState().addJob(newJob);
+                        navigate('/dashboard');
+                      }} 
+                      onCancel={() => navigate('/dashboard')} 
+                    />} />
                     <Route path="/vaga/:jobId/editar" element={<EditScreeningPage />} />
                     <Route path="/vaga/:jobId/resultados" element={<ResultsPage />} />
                     <Route path="/configuracoes" element={<SettingsPage />} />

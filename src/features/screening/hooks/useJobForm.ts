@@ -31,9 +31,22 @@ export const useJobForm = () => {
     setFormData(data);
   }, []);
 
-  const submitJob = async (): Promise<JobPosting | null> => {
+  const submitJob = async (jobFormData?: JobFormData): Promise<JobPosting | null> => {
     if (!profile) {
       setError("Você precisa estar logado para criar uma vaga.");
+      return null;
+    }
+
+    if (!profile.id) {
+      setError("Erro de autenticação: ID do usuário não encontrado. Tente fazer login novamente.");
+      return null;
+    }
+
+    // Use os dados passados como parâmetro ou os dados do estado interno
+    const dataToSubmit = jobFormData || formData;
+    
+    if (!dataToSubmit.jobTitle || !dataToSubmit.jobDescription) {
+      setError("Título e descrição são obrigatórios.");
       return null;
     }
 
@@ -42,13 +55,17 @@ export const useJobForm = () => {
     
     try {
       const newJobData = {
-        "titulo": formData.jobTitle,
-        "descricao": formData.jobDescription,
-        "endereco": formData.endereco,
-        "requisitos_obrigatorios": formData.requiredSkills,
-        "requisitos_desejaveis": formData.desiredSkills,
+        "titulo": dataToSubmit.jobTitle.trim(),
+        "descricao": dataToSubmit.jobDescription.trim(),
+        "endereco": dataToSubmit.endereco?.trim() || "",
+        "requisitos_obrigatorios": dataToSubmit.requiredSkills?.trim() || "",
+        "requisitos_desejaveis": dataToSubmit.desiredSkills?.trim() || "",
         "usuario": [profile.id]
       };
+
+      console.log('[useJobForm] Dados sendo enviados:', newJobData);
+      console.log('[useJobForm] Profile atual:', profile);
+      console.log('[useJobForm] API_BASE_URL:', API_BASE_URL);
 
       const response = await fetch(`${API_BASE_URL}/api/jobs`, {
         method: 'POST',

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import StatCard from './StatCard';
 import RecentScreenings from './RecentScreenings';
+import TodaySchedule from './TodaySchedule';
 import { useDashboardStats } from '../hooks/useDashboardStats';
 import { JobPosting } from '../../screening/types';
 import ApprovedCandidatesModal from './ApprovedCandidatesModal';
@@ -9,11 +10,13 @@ import { Candidate } from '../../../shared/types';
 import DeleteJobModal from './DeleteJobModal';
 import { useDataStore } from '../../../shared/store/useDataStore';
 import WelcomeEmptyState from './WelcomeEmptyState';
+import { useGoogleCalendar } from '../../../shared/hooks/useGoogleCalendar';
 
 const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const { jobs, candidates } = useDataStore();
   const { stats } = useDashboardStats(jobs, candidates);
+  const { googleEvents } = useGoogleCalendar();
   const [searchTerm, setSearchTerm] = useState('');
   
   const [isApprovedModalOpen, setIsApprovedModalOpen] = useState(false);
@@ -83,15 +86,25 @@ const DashboardPage: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
           {statsData.map((stat, index) => <StatCard key={index} {...stat} />)}
         </div>
-        <RecentScreenings
-          jobs={filteredJobs}
-          onViewResults={(job) => navigate(`/vaga/${job.id}/resultados`)}
-          onOpenDeleteModal={handleOpenDeleteModal}
-          onEditJob={(job) => navigate(`/vaga/${job.id}/editar`)}
-          onNewScreening={() => navigate('/nova-triagem')}
-          searchTerm={searchTerm}
-          setSearchTerm={setSearchTerm}
-        />
+        
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div className="xl:col-span-2">
+            <RecentScreenings
+              jobs={filteredJobs}
+              onViewResults={(job) => navigate(`/vaga/${job.id}/resultados`)}
+              onOpenDeleteModal={handleOpenDeleteModal}
+              onEditJob={(job) => navigate(`/vaga/${job.id}/editar`)}
+              onNewScreening={() => navigate('/nova-triagem')}
+              searchTerm={searchTerm}
+              setSearchTerm={setSearchTerm}
+            />
+          </div>
+          <div className="xl:col-span-1">
+            <TodaySchedule 
+              googleEvents={googleEvents} 
+            />
+          </div>
+        </div>
       </div>
       
       {isApprovedModalOpen && (

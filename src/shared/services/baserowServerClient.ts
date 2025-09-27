@@ -5,18 +5,24 @@ import FormData from 'form-data';
 
 const BASE_URL = 'https://dados.focoserv.com.br/api/database/rows/table';
 const FILE_UPLOAD_URL = 'https://dados.focoserv.com.br/api/user-files/upload-file/';
-const API_KEY = process.env.BASEROW_API_TOKEN || process.env.VITE_BASEROW_API_KEY;
 
-const uploadFileRequestFromBuffer = async (fileBuffer: Buffer, fileName: string, mimetype: string) => {
-  if (!API_KEY) {
+// Função para obter a API key dinamicamente
+const getApiKey = (): string => {
+  const apiKey = process.env.BASEROW_API_TOKEN || process.env.VITE_BASEROW_API_KEY;
+  if (!apiKey) {
     throw new Error("A chave da API do Baserow (BASEROW_API_TOKEN ou VITE_BASEROW_API_KEY) não foi encontrada no ambiente do servidor.");
   }
+  return apiKey;
+};
+
+const uploadFileRequestFromBuffer = async (fileBuffer: Buffer, fileName: string, mimetype: string) => {
+  const apiKey = getApiKey(); // Obter chave dinamicamente
 
   const formData = new FormData();
   formData.append('file', fileBuffer, { filename: fileName, contentType: mimetype });
 
   const formHeaders = formData.getHeaders();
-  const headers: HeadersInit = { 'Authorization': `Token ${API_KEY}`, ...formHeaders };
+  const headers: HeadersInit = { 'Authorization': `Token ${apiKey}`, ...formHeaders };
 
   try {
     const response = await fetch(FILE_UPLOAD_URL, {
@@ -42,13 +48,10 @@ const apiRequest = async (
   method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
   tableId: string,
   path: string = '',
-  body?: Record<string, any>
+  body?: Record<string, unknown>
 ) => {
-  if (!API_KEY) {
-    const errorMessage = "A chave da API do Baserow (BASEROW_API_TOKEN ou VITE_BASEROW_API_KEY) não foi encontrada no ambiente do servidor.";
-    console.error(errorMessage);
-    throw new Error(errorMessage);
-  }
+  const apiKey = getApiKey(); // Obter chave dinamicamente
+  
   let finalUrl = `${BASE_URL}/${tableId}/${path}`;
 
   if (method === 'GET' || method === 'POST' || method === 'PATCH') {
@@ -56,7 +59,7 @@ const apiRequest = async (
     finalUrl += `${separator}user_field_names=true`;
   }
   
-  const headers: HeadersInit = { 'Authorization': `Token ${API_KEY}` };
+  const headers: HeadersInit = { 'Authorization': `Token ${apiKey}` };
   if (body && (method === 'POST' || method === 'PATCH')) {
     headers['Content-Type'] = 'application/json';
   }
@@ -86,8 +89,8 @@ const apiRequest = async (
 export const baserowServer = {
   get: (tableId: string, params: string = '') => apiRequest('GET', tableId, params),
   getRow: (tableId: string, rowId: number) => apiRequest('GET', tableId, `${rowId}/`),
-  post: (tableId: string, data: Record<string, any>) => apiRequest('POST', tableId, ``, data),
-  patch: (tableId: string, rowId: number, data: Record<string, any>) => apiRequest('PATCH', tableId, `${rowId}/`, data),
+  post: (tableId: string, data: Record<string, unknown>) => apiRequest('POST', tableId, ``, data),
+  patch: (tableId: string, rowId: number, data: Record<string, unknown>) => apiRequest('PATCH', tableId, `${rowId}/`, data),
   delete: (tableId: string, rowId: number) => {
     console.log(`🗑️ Baserow DELETE - Table: ${tableId}, Row: ${rowId}`);
     return apiRequest('DELETE', tableId, `${rowId}/`);

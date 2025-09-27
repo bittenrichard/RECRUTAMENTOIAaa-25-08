@@ -2,13 +2,20 @@
 // SUBSTITUA O CONTEÚDO INTEIRO DESTE ARQUIVO
 
 import dotenv from 'dotenv';
+
+// Detecta o ambiente (default: development)
+const NODE_ENV = process.env.NODE_ENV || 'development';
+console.log(`[ENV] Carregando configurações para ambiente: ${NODE_ENV}`);
+
 // Carrega primeiro o .env padrão
-dotenv.config({ path: '.env' });
+const defaultEnvResult = dotenv.config({ path: '.env' });
+console.log(`[ENV] .env carregado:`, defaultEnvResult.error ? 'ERRO' : 'OK');
+
 // Depois carrega o específico do ambiente, sobrescrevendo se necessário
-dotenv.config({ path: `.env.${process.env.NODE_ENV || 'development'}`, override: false });
+const envSpecificResult = dotenv.config({ path: `.env.${NODE_ENV}`, override: true });
+console.log(`[ENV] .env.${NODE_ENV} carregado:`, envSpecificResult.error ? 'ERRO' : 'OK');
 
 import express, { Request, Response } from 'express';
-import cors from 'cors';
 import crypto from 'crypto';
 import { google } from 'googleapis';
 import { baserowServer } from './src/shared/services/baserowServerClient.js';
@@ -62,16 +69,45 @@ const upload = multer({
   }
 });
 
-// Configuração de CORS para produção
-const corsOptions = {
-  origin: process.env.NODE_ENV === 'production' 
-    ? [process.env.FRONTEND_URL, process.env.BACKEND_URL].filter(Boolean)
-    : '*',
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id'] // Adicionar header para sistema de usuários
-};
-app.use(cors(corsOptions));
+// Configuração simplificada de CORS para produção
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  console.log(`[CORS] Request from origin: ${origin}, Method: ${req.method}, Path: ${req.path}`);
+  
+  // Lista de origens permitidas
+  const allowedOrigins = [
+    'https://recrutamentoia.com.br',
+    'https://www.recrutamentoia.com.br',
+    'https://backend.recrutamentoia.com.br'
+  ];
+  
+  // Em desenvolvimento, permite qualquer origem
+  if (process.env.NODE_ENV === 'development') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  } 
+  // Em produção, verifica a lista de origens ou usa a origem da requisição se estiver na lista
+  else if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } 
+  // Fallback para o domínio principal
+  else {
+    res.setHeader('Access-Control-Allow-Origin', 'https://recrutamentoia.com.br');
+  }
+  
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-user-id');
+  res.setHeader('Access-Control-Max-Age', '86400'); // 24 horas
+  
+  // Manipular requisições OPTIONS (preflight)
+  if (req.method === 'OPTIONS') {
+    console.log('[CORS] Handling OPTIONS preflight request');
+    res.status(204).send();
+    return;
+  }
+  
+  next();
+});
 
 // Configurações de segurança para produção
 if (process.env.NODE_ENV === 'production') {
@@ -81,6 +117,15 @@ if (process.env.NODE_ENV === 'production') {
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
+// Endpoint de teste para verificar CORS
+app.get('/api/health', (req: Request, res: Response) => {
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    cors: 'working',
+    environment: process.env.NODE_ENV 
+  });
+});
 
 // Configuração de credenciais OAuth baseada no ambiente
 const isDevelopment = process.env.NODE_ENV === 'development';
@@ -468,8 +513,21 @@ app.post('/api/upload-avatar', upload.single('avatar'), async (req: Request, res
 });
 
 app.post('/api/jobs', async (req: Request, res: Response) => {
+  console.log('[POST /api/jobs] === INICIO DA REQUISIÇÃO ===');
+  console.log('[POST /api/jobs] Body recebido:', JSON.stringify(req.body, null, 2));
+  
   const { titulo, descricao, endereco, requisitos_obrigatorios, requisitos_desejaveis, usuario } = req.body;
+  
+  console.log('[POST /api/jobs] Campos extraídos:');
+  console.log('[POST /api/jobs] - titulo:', titulo);
+  console.log('[POST /api/jobs] - descricao:', descricao);
+  console.log('[POST /api/jobs] - usuario:', usuario);
+  console.log('[POST /api/jobs] - typeof usuario:', typeof usuario);
+  console.log('[POST /api/jobs] - Array.isArray(usuario):', Array.isArray(usuario));
+  console.log('[POST /api/jobs] - usuario.length:', usuario?.length);
+  
   if (!titulo || !descricao || !usuario || usuario.length === 0) {
+    console.log('[POST /api/jobs] ERRO: Validação falhou');
     return res.status(400).json({ error: 'Título, descrição e ID do usuário são obrigatórios.' });
   }
 
@@ -994,7 +1052,8 @@ app.get('/api/google/auth/connect', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'userId é obrigatório' });
   }
 
-  const scopes = ['https://www.googleapis.com/auth/calendar.events'];
+  // 🔧 ESCOPO AMPLIADO para melhor compatibilidade
+  const scopes = ['https://www.googleapis.com/auth/calendar'];
 
   // Para desenvolvimento local, usar configuração específica
   const isDevelopment = process.env.NODE_ENV === 'development';
@@ -1006,10 +1065,222 @@ app.get('/api/google/auth/connect', (req: Request, res: Response) => {
     scope: scopes,
     prompt: 'consent',
     state: userId.toString(),
+    include_granted_scopes: true, // 🔧 Melhor compatibilidade
   });
 
   console.log('[Google Auth Connect] URL gerada:', url);
   res.json({ url });
+});
+
+// 🔄 ENDPOINT: SINCRONIZAÇÃO FORÇADA TOTAL
+app.post('/api/google/calendar/force-sync/:userId', async (req: Request, res: Response) => {
+  const { userId } = req.params;
+  
+  try {
+    console.log(`[FORCE SYNC] 🔄 Iniciando sincronização TOTAL para userId: ${userId}`);
+    
+    // Buscar usuário e tokens
+    const userRow = await baserowServer.get(USERS_TABLE_ID, userId);
+    const refreshToken = userRow.google_refresh_token;
+    
+    if (!refreshToken) {
+      return res.status(400).json({ 
+        error: 'Google Calendar não conectado',
+        success: false
+      });
+    }
+    
+    // Configurar cliente OAuth2
+    oauth2Client.setCredentials({ refresh_token: refreshToken });
+    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+    
+    // 🎯 SINCRONIZAÇÃO AGRESSIVA: Buscar MUITO mais eventos
+    const timeMin = new Date();
+    timeMin.setMonth(timeMin.getMonth() - 6); // 6 meses atrás
+    
+    const timeMax = new Date();
+    timeMax.setMonth(timeMax.getMonth() + 12); // 12 meses à frente
+    
+    console.log(`[FORCE SYNC] 📅 Período TOTAL:`, {
+      timeMin: timeMin.toISOString(),
+      timeMax: timeMax.toISOString()
+    });
+    
+    // 🔧 PAGINAÇÃO CORRETA: maxResults máximo 2500
+    const allEvents: any[] = [];
+    let pageToken: string | undefined;
+    
+    do {
+      const response = await calendar.events.list({
+        calendarId: 'primary',
+        timeMin: timeMin.toISOString(),
+        timeMax: timeMax.toISOString(),
+        singleEvents: true,
+        orderBy: 'startTime',
+        maxResults: 2500, // Máximo permitido pela API
+        pageToken
+      });
+      
+      const events = response.data.items || [];
+      allEvents.push(...events);
+      pageToken = response.data.nextPageToken || undefined;
+      
+      console.log(`[FORCE SYNC] 📄 Página carregada: ${events.length} eventos (total: ${allEvents.length})`);
+      
+    } while (pageToken);
+    
+    console.log(`[FORCE SYNC] 📊 TOTAL de eventos encontrados: ${allEvents.length}`);
+    const events = allEvents;
+    
+    // Log dos primeiros eventos para debug
+    if (events.length > 0) {
+      console.log(`[FORCE SYNC] 🔍 PRIMEIROS 5 EVENTOS:`);
+      events.slice(0, 5).forEach((event: any, i: number) => {
+        console.log(`[${i+1}]`, {
+          summary: event.summary || '⚠️ SEM TÍTULO',
+          start: event.start?.dateTime || event.start?.date,
+          hasAttendees: !!event.attendees?.length,
+          hasLocation: !!event.location,
+          hasDescription: !!event.description
+        });
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: `Sincronização forçada concluída`,
+      totalEvents: events.length,
+      timeRange: {
+        from: timeMin.toISOString(),
+        to: timeMax.toISOString()
+      },
+      sampleEvents: events.slice(0, 3).map((event: any) => ({
+        id: event.id,
+        title: event.summary || `📅 Compromisso ${event.start?.dateTime || event.start?.date}`,
+        start: event.start?.dateTime || event.start?.date,
+        end: event.end?.dateTime || event.end?.date
+      }))
+    });
+    
+  } catch (error: any) {
+    // 🚨 LOGS DETALHADOS para force sync
+    console.error('[FORCE SYNC] ❌ ERRO DETALHADO:', {
+      message: error.message,
+      statusCode: error?.response?.status,
+      statusText: error?.response?.statusText,
+      responseData: error?.response?.data,
+      errorCode: error?.code
+    });
+    
+    res.status(500).json({ 
+      success: false,
+      error: 'Erro na sincronização forçada',
+      details: error?.response?.data || error.message,
+      statusCode: error?.response?.status
+    });
+  }
+});
+
+// 🎯 ENDPOINT: Detectar disponibilidade para entrevistas
+app.get('/api/google/availability/:userId', async (req: Request, res: Response) => {
+  const { userId } = req.params;
+  const { date, duration = 60 } = req.query; // duração em minutos, padrão 1h
+  
+  try {
+    console.log(`[AVAILABILITY] Verificando disponibilidade para userId: ${userId}`);
+    
+    // Buscar usuário e refresh token
+    const userRow = await baserowServer.get(USERS_TABLE_ID, userId);
+    const refreshToken = userRow.google_refresh_token;
+    
+    if (!refreshToken) {
+      return res.status(400).json({ 
+        error: 'Google Calendar não conectado',
+        availableSlots: []
+      });
+    }
+    
+    // Configurar OAuth2 client
+    oauth2Client.setCredentials({ refresh_token: refreshToken });
+    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+    
+    // Definir período de busca (dia específico ou próximos 7 dias)
+    const searchDate = date ? new Date(date as string) : new Date();
+    const timeMin = new Date(searchDate);
+    timeMin.setHours(8, 0, 0, 0); // 8:00 AM
+    
+    const timeMax = new Date(searchDate);
+    timeMax.setHours(18, 0, 0, 0); // 6:00 PM
+    
+    console.log(`[AVAILABILITY] Buscando eventos entre: ${timeMin.toISOString()} e ${timeMax.toISOString()}`);
+    
+    // Buscar eventos do dia
+    const response = await calendar.events.list({
+      calendarId: 'primary',
+      timeMin: timeMin.toISOString(),
+      timeMax: timeMax.toISOString(),
+      singleEvents: true,
+      orderBy: 'startTime',
+    });
+    
+    const events = response.data.items || [];
+    const busySlots = events
+      .filter((event: any) => event.start?.dateTime && event.end?.dateTime)
+      .map((event: any) => ({
+        start: new Date(event.start.dateTime),
+        end: new Date(event.end.dateTime),
+        title: event.summary || 'Ocupado'
+      }));
+    
+    // Gerar slots disponíveis
+    const availableSlots = [];
+    const slotDuration = parseInt(duration as string);
+    let currentTime = new Date(timeMin);
+    
+    while (currentTime < timeMax) {
+      const slotEnd = new Date(currentTime.getTime() + slotDuration * 60 * 1000);
+      
+      // Verificar se o slot não conflita com eventos existentes
+      const hasConflict = busySlots.some(busy => 
+        (currentTime >= busy.start && currentTime < busy.end) ||
+        (slotEnd > busy.start && slotEnd <= busy.end) ||
+        (currentTime <= busy.start && slotEnd >= busy.end)
+      );
+      
+      if (!hasConflict && slotEnd <= timeMax) {
+        availableSlots.push({
+          start: new Date(currentTime),
+          end: new Date(slotEnd),
+          duration: slotDuration,
+          timeLabel: currentTime.toLocaleTimeString('pt-BR', { 
+            hour: '2-digit', 
+            minute: '2-digit',
+            timeZone: 'America/Sao_Paulo'
+          })
+        });
+      }
+      
+      // Avançar 30 minutos
+      currentTime = new Date(currentTime.getTime() + 30 * 60 * 1000);
+    }
+    
+    console.log(`[AVAILABILITY] Encontrados ${availableSlots.length} slots disponíveis`);
+    
+    res.json({
+      success: true,
+      date: searchDate.toISOString().split('T')[0],
+      busySlots,
+      availableSlots,
+      suggestions: availableSlots.slice(0, 6) // Top 6 sugestões
+    });
+    
+  } catch (error: any) {
+    console.error('[AVAILABILITY] Erro:', error);
+    res.status(500).json({ 
+      error: 'Erro ao verificar disponibilidade',
+      availableSlots: []
+    });
+  }
 });
 
 app.get('/api/google/auth/callback', async (req: Request, res: Response) => {
@@ -1073,46 +1344,159 @@ app.get('/api/google/auth/status', async (req: Request, res: Response) => {
   }
 });
 
+// Endpoint de debug detalhado
+app.get('/api/google/auth/debug/:userId', async (req: Request, res: Response) => {
+  const { userId } = req.params;
+  
+  try {
+    console.log(`[DEBUG] Verificando usuário ${userId}...`);
+    const userResponse = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+    
+    const debugInfo: any = {
+      userId: parseInt(userId),
+      hasRefreshToken: !!userResponse.google_refresh_token,
+      refreshTokenPreview: userResponse.google_refresh_token ? 
+        `${userResponse.google_refresh_token.substring(0, 10)}...` : null,
+      userEmail: userResponse.email || 'N/A',
+      userName: userResponse.name || 'N/A',
+      lastUpdated: userResponse.updated_on || 'N/A'
+    };
+    
+    // Testar se o token funciona
+    if (userResponse.google_refresh_token) {
+      try {
+        oauth2Client.setCredentials({ refresh_token: userResponse.google_refresh_token });
+        const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+        
+        const testResponse = await calendar.events.list({
+          calendarId: 'primary',
+          maxResults: 1,
+          timeMin: new Date().toISOString()
+        });
+        
+        debugInfo.tokenTest = {
+          status: 'válido',
+          canAccessCalendar: true,
+          testEventCount: testResponse.data.items?.length || 0
+        };
+      } catch (tokenError: any) {
+        debugInfo.tokenTest = {
+          status: 'inválido',
+          canAccessCalendar: false,
+          error: tokenError.message
+        };
+      }
+    }
+    
+    console.log(`[DEBUG] Info do usuário ${userId}:`, debugInfo);
+    res.json(debugInfo);
+    
+  } catch (error: any) {
+    console.error(`[DEBUG] Erro ao verificar usuário ${userId}:`, error);
+    res.status(500).json({ error: 'Erro ao verificar usuário', details: error.message });
+  }
+});
+
 app.post('/api/google/calendar/create-event', async (req: Request, res: Response) => {
+  console.log('[DEBUG] =========================');
+  console.log('[DEBUG] Nova requisição de criação de evento');
+  console.log('[DEBUG] Body recebido:', JSON.stringify(req.body, null, 2));
+  
   const { userId, eventData, candidate, job } = req.body;
   if (!userId || !eventData || !candidate || !job) {
+    console.log('[DEBUG] ❌ Dados insuficientes:', { userId: !!userId, eventData: !!eventData, candidate: !!candidate, job: !!job });
     return res.status(400).json({ success: false, message: 'Dados insuficientes.' });
   }
 
   try {
+    console.log('[DEBUG] 🔍 Buscando usuário ID:', userId);
     const userResponse = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+    console.log('[DEBUG] 👤 Usuário encontrado:', userResponse.nome);
+    
     const refreshToken = userResponse.google_refresh_token;
+    console.log('[DEBUG] 🔑 Refresh token presente:', !!refreshToken);
+    
     if (!refreshToken) {
+      console.log('[DEBUG] ❌ Usuário não tem refresh token');
       return res.status(401).json({ success: false, message: 'Usuário não conectado ao Google Calendar. Por favor, conecte sua conta em "Configurações".' });
     }
 
+    console.log('[DEBUG] 🔧 Configurando OAuth2 client...');
     oauth2Client.setCredentials({ refresh_token: refreshToken });
     const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-    const eventDescription = `Entrevista com o candidato: ${candidate.nome}.\n` +
-      `Telefone: ${candidate.telefone || 'Não informado'}\n\n` +
-      `--- Detalhes adicionais ---\n` +
-      `${eventData.details || 'Nenhum detalhe adicional.'}`;
+    
+    // SIMPLIFICADO: Apenas informações básicas no Google Calendar
+    console.log('[DEBUG] 📅 Dados recebidos - start:', eventData.start, 'end:', eventData.end);
+    
+    // Corrigir formato de data se necessário
+    const startDate = new Date(eventData.start);
+    const endDate = new Date(eventData.end);
+    
+    console.log('[DEBUG] 📅 Datas convertidas - start:', startDate.toISOString(), 'end:', endDate.toISOString());
+    
     const event = {
-      summary: eventData.title,
-      description: eventDescription,
-      start: { dateTime: eventData.start, timeZone: 'America/Sao_Paulo' },
-      end: { dateTime: eventData.end, timeZone: 'America/Sao_Paulo' },
-      reminders: { useDefault: true },
+      summary: `Entrevista - ${candidate.nome}`,
+      description: `Entrevista com ${candidate.nome} para a vaga: ${job.titulo}`,
+      start: { 
+        dateTime: startDate.toISOString(),
+        timeZone: 'America/Sao_Paulo' 
+      },
+      end: { 
+        dateTime: endDate.toISOString(),
+        timeZone: 'America/Sao_Paulo' 
+      },
+      reminders: { 
+        useDefault: false,
+        overrides: [
+          { method: 'popup', minutes: 30 },
+          { method: 'email', minutes: 60 }
+        ]
+      },
+      // Forçar visibilidade
+      visibility: 'default',
+      // Adicionar localização se disponível
+      location: 'Entrevista Online'
     };
 
+    console.log('[DEBUG] 📅 Criando evento no Google Calendar...');
+    console.log('[DEBUG] 📝 Dados do evento:', JSON.stringify(event, null, 2));
+    
+    // Verificar acesso ao calendário antes de criar
+    try {
+      const calendarList = await calendar.calendarList.list();
+      console.log('[DEBUG] 📋 Calendários disponíveis:', calendarList.data.items?.length);
+      
+      const primaryCalendar = calendarList.data.items?.find(cal => cal.id === 'primary');
+      console.log('[DEBUG] 📋 Calendário primário encontrado:', !!primaryCalendar);
+      console.log('[DEBUG] 📋 Acesso de escrita:', primaryCalendar?.accessRole);
+    } catch (calError) {
+      console.error('[DEBUG] ❌ Erro ao verificar calendários:', calError);
+    }
+    
     const response = await calendar.events.insert({
-      calendarId: 'primary', requestBody: event,
+      calendarId: 'primary', 
+      requestBody: event,
+      sendNotifications: true // Enviar notificações
     });
 
-    await baserowServer.post(AGENDAMENTOS_TABLE_ID, {
-      'Título': eventData.title,
-      'Início': eventData.start,
-      'Fim': eventData.end,
-      'Detalhes': eventData.details,
-      'Candidato': [candidate.id],
-      'Vaga': [job.id],
-      'google_event_link': response.data.htmlLink
-    });
+    console.log('[DEBUG] ✅ Evento criado com sucesso!');
+    console.log('[DEBUG] 🆔 ID do evento:', response.data.id);
+    console.log('[DEBUG] 🔗 Link do evento:', response.data.htmlLink);
+    console.log('[DEBUG] 📊 Status da resposta:', response.status);
+    console.log('[DEBUG] 📅 Data/hora do evento criado:', response.data.start?.dateTime);
+
+    // Verificar se o evento foi realmente criado fazendo uma busca
+    try {
+      console.log('[DEBUG] 🔍 Verificando se evento foi criado...');
+      const createdEvent = await calendar.events.get({
+        calendarId: 'primary',
+        eventId: response.data.id!
+      });
+      console.log('[DEBUG] ✅ Evento confirmado no Google Calendar:', createdEvent.data.summary);
+      console.log('[DEBUG] 📅 Horário confirmado:', createdEvent.data.start?.dateTime);
+    } catch (verifyError) {
+      console.error('[DEBUG] ❌ Erro ao verificar evento criado:', verifyError);
+    }
 
     if (process.env.N8N_SCHEDULE_WEBHOOK_URL) {
       const webhookPayload = {
@@ -1130,10 +1514,341 @@ app.post('/api/google/calendar/create-event', async (req: Request, res: Response
         console.error("Erro ao disparar o webhook para o n8n:", webhookError);
       });
     }
-    res.json({ success: true, message: 'Evento criado com sucesso!', data: response.data });
+    res.json({ 
+      success: true, 
+      message: 'Evento criado com sucesso!', 
+      data: {
+        id: response.data.id,
+        htmlLink: response.data.htmlLink,
+        summary: response.data.summary,
+        start: response.data.start,
+        end: response.data.end
+      }
+    });
   } catch (error: any) {
     console.error('Erro ao criar evento no Google Calendar:', error);
     res.status(500).json({ success: false, message: 'Falha ao criar evento.' });
+  }
+});
+
+// Endpoint para verificar um evento específico
+app.get('/api/google/calendar/event/:userId/:eventId', async (req: Request, res: Response) => {
+  const { userId, eventId } = req.params;
+  
+  try {
+    const userResponse = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+    const refreshToken = userResponse.google_refresh_token;
+    
+    if (!refreshToken) {
+      return res.status(401).json({ success: false, message: 'Usuário não conectado ao Google Calendar.' });
+    }
+
+    oauth2Client.setCredentials({ refresh_token: refreshToken });
+    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+    
+    const event = await calendar.events.get({
+      calendarId: 'primary',
+      eventId: eventId
+    });
+    
+    res.json({ 
+      success: true, 
+      event: {
+        id: event.data.id,
+        summary: event.data.summary,
+        description: event.data.description,
+        start: event.data.start,
+        end: event.data.end,
+        htmlLink: event.data.htmlLink
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao buscar evento específico:', error);
+    res.status(500).json({ success: false, message: 'Erro ao buscar evento.' });
+  }
+});
+
+// Endpoint para listar eventos do Google Calendar sincronizados
+app.get('/api/google/calendar/events/:userId', async (req: Request, res: Response) => {
+  const { userId } = req.params;
+  
+  console.log(`[GOOGLE CALENDAR] Buscando eventos para userId: ${userId}`);
+  
+  try {
+    console.log(`[GOOGLE CALENDAR] Fazendo busca do usuário na tabela ${USERS_TABLE_ID}`);
+    const userResponse = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+    console.log(`[GOOGLE CALENDAR] Resposta do usuário:`, userResponse);
+    
+    const refreshToken = userResponse.google_refresh_token;
+    console.log(`[GOOGLE CALENDAR] Refresh token presente:`, !!refreshToken);
+    
+    if (!refreshToken) {
+      console.log(`[GOOGLE CALENDAR] Usuário ${userId} não tem refresh token`);
+      return res.status(401).json({ success: false, message: 'Usuário não conectado ao Google Calendar.' });
+    }
+
+    console.log(`[GOOGLE CALENDAR] Configurando OAuth2 client com refresh token`);
+    oauth2Client.setCredentials({ refresh_token: refreshToken });
+    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+    
+    // 🎯 PERÍODO COMPLETO: Buscar TODOS os eventos (passado + presente + futuro)
+    const timeMin = new Date('2025-09-01T00:00:00Z'); // Todo setembro 2025
+    const timeMax = new Date('2026-01-01T00:00:00Z'); // Até janeiro 2026
+    
+    console.log(`[GOOGLE CALENDAR] 🎯 PERÍODO COMPLETO - Todo setembro 2025:`, {
+      timeMin: timeMin.toISOString(),
+      timeMax: timeMax.toISOString(),
+      hoje: new Date().toISOString(),
+      buscandoTodos: 'SIM - incluindo calendários compartilhados'
+    });
+    
+    // 🔄 BUSCA EM MÚLTIPLOS CALENDÁRIOS
+    const allEvents: any[] = [];
+    
+    // 1. Buscar lista de calendários do usuário
+    const calendarList = await calendar.calendarList.list({
+      maxResults: 250
+    });
+    
+    const calendars = calendarList.data.items || [];
+    console.log(`[GOOGLE CALENDAR] 📅 Calendários encontrados: ${calendars.length}`);
+    
+    // 2. Buscar eventos em cada calendário
+    for (const cal of calendars) {
+      if (!cal.id) continue;
+      
+      console.log(`[GOOGLE CALENDAR] 🔍 Buscando em: ${cal.summary} (${cal.id})`);
+      
+      let pageToken: string | undefined;
+      let calendarEvents = 0;
+      
+      do {
+        const response = await calendar.events.list({
+          calendarId: cal.id,
+          timeMin: timeMin.toISOString(),
+          timeMax: timeMax.toISOString(),
+          singleEvents: true,
+          orderBy: 'startTime',
+          maxResults: 2500,
+          pageToken
+        });
+        
+        const pageEvents = response.data.items || [];
+        allEvents.push(...pageEvents);
+        calendarEvents += pageEvents.length;
+        pageToken = response.data.nextPageToken || undefined;
+        
+      } while (pageToken);
+      
+      console.log(`[GOOGLE CALENDAR] ✅ ${cal.summary}: ${calendarEvents} eventos`);
+    }
+
+    console.log(`[GOOGLE CALENDAR] Response da API Google:`, {
+      status: 200,
+      itemsCount: allEvents.length
+    });
+
+    const events = allEvents;
+    
+    // 🔍 DEBUG COMPLETO: Todos os campos dos eventos Google
+    if (events.length > 0) {
+      console.log(`[GOOGLE CALENDAR] 🔍 PRIMEIRO EVENTO COMPLETO:`, JSON.stringify(events[0], null, 2));
+      
+      console.log(`[GOOGLE CALENDAR] 📊 RESUMO DOS PRIMEIROS 3 EVENTOS:`);
+      events.slice(0, 3).forEach((event: any, index: number) => {
+        console.log(`[EVENTO ${index + 1}]`, {
+          id: event.id,
+          summary: event.summary || 'UNDEFINED',
+          description: event.description || 'UNDEFINED',
+          location: event.location || 'UNDEFINED',
+          start: event.start,
+          end: event.end,
+          status: event.status,
+          attendees: event.attendees?.length || 0,
+          creator: event.creator?.email || 'UNDEFINED',
+          organizer: event.organizer?.email || 'UNDEFINED'
+        });
+      });
+    } else {
+      console.log(`[GOOGLE CALENDAR] ⚠️  Nenhum evento retornado pela API Google!`);
+    }
+    // Filtrar eventos válidos do Google Calendar
+    const validEvents = events.filter((event: any) => {
+      const isNotCancelled = event.status !== 'cancelled';
+      const hasDateTime = event.start && (event.start.dateTime || event.start.date);
+      
+      // ✅ FILTRO CORRIGIDO: Aceitar todos os eventos com horário válido
+      // Eventos do Google Calendar são sempre válidos se têm data/hora
+      return isNotCancelled && hasDateTime;
+    });
+    
+    console.log(`[GOOGLE CALENDAR] Eventos válidos após filtro: ${validEvents.length} de ${events.length}`);
+    
+    // 🔄 FORMATAÇÃO COMPLETA dos eventos Google Calendar
+    const formattedEvents = validEvents.map((event: any) => {
+      const startTime = event.start?.dateTime || event.start?.date;
+      const endTime = event.end?.dateTime || event.end?.date;
+      
+      // 🎯 TÍTULO REAL DO GOOGLE CALENDAR
+      let eventTitle = event.summary || null;
+      
+      // Se não tem título, criar um descritivo
+      if (!eventTitle || eventTitle.trim() === '') {
+        const startDate = new Date(startTime);
+        const timeStr = startDate.toLocaleTimeString('pt-BR', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          timeZone: 'America/Sao_Paulo'
+        });
+        
+        if (event.location && event.location.trim() !== '') {
+          eventTitle = `📍 ${event.location.trim()}`;
+        } else if (event.attendees && event.attendees.length > 0) {
+          eventTitle = `👥 Reunião (${event.attendees.length} pessoas)`;
+        } else if (event.description && event.description.trim() !== '') {
+          const desc = event.description.trim().substring(0, 40);
+          eventTitle = `📝 ${desc}`;
+        } else {
+          eventTitle = `📅 Compromisso ${timeStr}`;
+        }
+      }
+      
+      // 📊 LOG completo do evento formatado
+      console.log(`[GOOGLE CALENDAR] ✅ Evento sincronizado:`, {
+        id: event.id,
+        title: eventTitle,
+        originalSummary: event.summary || 'VAZIO',
+        start: startTime,
+        end: endTime,
+        hasLocation: !!event.location,
+        hasDescription: !!event.description,
+        attendeesCount: event.attendees?.length || 0
+      });
+      
+      // 🎯 OBJETO COMPLETO com TODOS os dados do Google Calendar
+      return {
+        id: event.id,
+        title: eventTitle,
+        description: event.description?.trim() || '',
+        start: startTime,
+        end: endTime,
+        location: event.location?.trim() || '',
+        attendees: event.attendees || [],
+        htmlLink: event.htmlLink || '',
+        creatorEmail: event.creator?.email || '',
+        organizerEmail: event.organizer?.email || '',
+        eventStatus: event.status || 'confirmed',
+        colorId: event.colorId || '',
+        createdAt: event.created || '',
+        updatedAt: event.updated || '',
+        status: event.status,
+        // Adicionar informações extras para debug
+        creator: event.creator?.email || '',
+        organizer: event.organizer?.email || ''
+      };
+    });
+
+    console.log(`[GOOGLE CALENDAR] Retornando ${formattedEvents.length} eventos formatados`);
+    res.json({ success: true, events: formattedEvents });
+  } catch (error: any) {
+    // 🚨 LOGS DETALHADOS para diagnóstico completo
+    console.error(`[GOOGLE CALENDAR] ❌ ERRO DETALHADO para userId ${userId}:`, {
+      message: error.message,
+      statusCode: error?.response?.status,
+      statusText: error?.response?.statusText,
+      responseData: error?.response?.data,
+      errorCode: error?.code,
+      stack: error?.stack?.split('\n').slice(0, 3) // Primeiras linhas do stack
+    });
+    
+    // Tratamento específico de erros do Google API
+    if (error.code === 401 || error.message?.includes('unauthorized') || error.message?.includes('invalid_grant')) {
+      console.log(`[GOOGLE CALENDAR] 🔑 Token expirado ou inválido para userId ${userId}`);
+      res.status(401).json({ 
+        success: false, 
+        message: 'Token do Google expirado. Por favor, reconecte sua conta Google.',
+        error_code: 'TOKEN_EXPIRED'
+      });
+    } else if (error.code === 403) {
+      console.log(`[GOOGLE CALENDAR] Acesso negado para userId ${userId}`);
+      res.status(403).json({ 
+        success: false, 
+        message: 'Acesso negado ao Google Calendar. Verifique as permissões.',
+        error_code: 'ACCESS_DENIED'
+      });
+    } else {
+      res.status(500).json({ 
+        success: false, 
+        message: 'Falha ao buscar eventos do Google Calendar.',
+        error_code: 'UNKNOWN_ERROR',
+        details: error.message
+      });
+    }
+  }
+});
+
+// Endpoint para atualizar evento do Google Calendar
+app.put('/api/google/calendar/events/:eventId', async (req: Request, res: Response) => {
+  const { eventId } = req.params;
+  const { userId, eventData } = req.body;
+  
+  try {
+    const userResponse = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+    const refreshToken = userResponse.google_refresh_token;
+    
+    if (!refreshToken) {
+      return res.status(401).json({ success: false, message: 'Usuário não conectado ao Google Calendar.' });
+    }
+
+    oauth2Client.setCredentials({ refresh_token: refreshToken });
+    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+    
+    const event = {
+      summary: eventData.title,
+      description: eventData.description || eventData.details,
+      start: { dateTime: eventData.start, timeZone: 'America/Sao_Paulo' },
+      end: { dateTime: eventData.end, timeZone: 'America/Sao_Paulo' },
+      location: eventData.location || '',
+    };
+
+    const response = await calendar.events.update({
+      calendarId: 'primary',
+      eventId: eventId,
+      requestBody: event,
+    });
+
+    res.json({ success: true, message: 'Evento atualizado com sucesso!', data: response.data });
+  } catch (error: any) {
+    console.error('Erro ao atualizar evento no Google Calendar:', error);
+    res.status(500).json({ success: false, message: 'Falha ao atualizar evento.' });
+  }
+});
+
+// Endpoint para deletar evento do Google Calendar
+app.delete('/api/google/calendar/events/:eventId', async (req: Request, res: Response) => {
+  const { eventId } = req.params;
+  const { userId } = req.query;
+  
+  try {
+    const userResponse = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId as string));
+    const refreshToken = userResponse.google_refresh_token;
+    
+    if (!refreshToken) {
+      return res.status(401).json({ success: false, message: 'Usuário não conectado ao Google Calendar.' });
+    }
+
+    oauth2Client.setCredentials({ refresh_token: refreshToken });
+    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+    
+    await calendar.events.delete({
+      calendarId: 'primary',
+      eventId: eventId,
+    });
+
+    res.json({ success: true, message: 'Evento excluído com sucesso!' });
+  } catch (error: any) {
+    console.error('Erro ao excluir evento no Google Calendar:', error);
+    res.status(500).json({ success: false, message: 'Falha ao excluir evento.' });
   }
 });
 
@@ -2428,13 +3143,19 @@ app.delete('/api/theoretical-test/delete/:testId', async (req: Request, res: Res
 app.get('/api/theoretical-test/review/:testId', async (req: Request, res: Response) => {
   const { testId } = req.params;
   
+  console.log(`[Theoretical Test REVIEW] === INICIO DA REQUISIÇÃO ===`);
+  console.log(`[Theoretical Test REVIEW] testId recebido: "${testId}"`);
+  console.log(`[Theoretical Test REVIEW] typeof testId: ${typeof testId}`);
+  
   if (!testId) {
+    console.log(`[Theoretical Test REVIEW] ERRO: testId vazio`);
     return res.status(400).json({ error: 'ID da prova é obrigatório.' });
   }
   
   try {
     console.log(`[Theoretical Test REVIEW] Buscando gabarito da prova ${testId}`);
     console.log(`[Theoretical Test REVIEW] Table ID: ${PROVAS_TEORICAS_APLICADAS_TABLE_ID}`);
+    console.log(`[Theoretical Test REVIEW] parseInt(testId): ${parseInt(testId)}`);
     
     // Buscar a prova aplicada
     const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
@@ -2490,17 +3211,41 @@ app.get('/api/theoretical-test/review/:testId', async (req: Request, res: Respon
       console.error('[Review] Erro ao parsear respostas:', error);
     }
     
+    // Calcular estatísticas da prova
+    let acertos = 0;
+    const totalQuestoes = modelData.questoes.length;
+    
+    // Contar acertos para questões objetivas
+    modelData.questoes.forEach((questao: any) => {
+      if (questao.tipo === 'verdadeiro_falso' || questao.tipo === 'multipla_escolha') {
+        const respostaCandidato = (respostasCandidato as any)[questao.id];
+        if (respostaCandidato === questao.resposta_correta) {
+          acertos++;
+        }
+      }
+    });
+    
+    console.log(`[Review] Estatísticas: ${acertos}/${totalQuestoes} acertos`);
+    
     res.json({ 
       success: true, 
       data: { 
-        testId: appliedTest.id,
-        candidato_nome: candidateName,
-        modelo_prova: modelData,
-        respostas_candidato: respostasCandidato,
-        pontuacao_total: appliedTest.pontuacao_total || 0,
-        status: appliedTest.status,
-        data_resposta: appliedTest.data_de_resposta,
-        data_geracao: appliedTest.data_de_geracao
+        test: {
+          testId: appliedTest.id,
+          candidato_nome: candidateName,
+          modelo_nome: modelData.titulo,  // Usar titulo como modelo_nome
+          pontuacao_total: appliedTest.pontuacao_total || 0,
+          acertos: acertos,
+          total_questoes: totalQuestoes,
+          status: appliedTest.status,
+          data_finalizacao: appliedTest.data_de_resposta,
+          data_geracao: appliedTest.data_de_geracao
+        },
+        questions: modelData.questoes,
+        candidateAnswers: Object.entries(respostasCandidato).map(([questionId, answer]) => ({
+          question_id: questionId,
+          answer: answer
+        }))
       } 
     });
   } catch (error: unknown) {

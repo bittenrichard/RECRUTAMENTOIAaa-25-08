@@ -1,25 +1,24 @@
-"use strict";
 // Local: src/shared/services/baserowServerClient.ts
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.baserowServer = void 0;
-const node_fetch_1 = __importDefault(require("node-fetch"));
-const form_data_1 = __importDefault(require("form-data"));
+import fetch from 'node-fetch';
+import FormData from 'form-data';
 const BASE_URL = 'https://dados.focoserv.com.br/api/database/rows/table';
 const FILE_UPLOAD_URL = 'https://dados.focoserv.com.br/api/user-files/upload-file/';
-const API_KEY = process.env.BASEROW_API_TOKEN || process.env.VITE_BASEROW_API_KEY;
-const uploadFileRequestFromBuffer = async (fileBuffer, fileName, mimetype) => {
-    if (!API_KEY) {
+// Função para obter a API key dinamicamente
+const getApiKey = () => {
+    const apiKey = process.env.BASEROW_API_TOKEN || process.env.VITE_BASEROW_API_KEY;
+    if (!apiKey) {
         throw new Error("A chave da API do Baserow (BASEROW_API_TOKEN ou VITE_BASEROW_API_KEY) não foi encontrada no ambiente do servidor.");
     }
-    const formData = new form_data_1.default();
+    return apiKey;
+};
+const uploadFileRequestFromBuffer = async (fileBuffer, fileName, mimetype) => {
+    const apiKey = getApiKey(); // Obter chave dinamicamente
+    const formData = new FormData();
     formData.append('file', fileBuffer, { filename: fileName, contentType: mimetype });
     const formHeaders = formData.getHeaders();
-    const headers = { 'Authorization': `Token ${API_KEY}`, ...formHeaders };
+    const headers = { 'Authorization': `Token ${apiKey}`, ...formHeaders };
     try {
-        const response = await (0, node_fetch_1.default)(FILE_UPLOAD_URL, {
+        const response = await fetch(FILE_UPLOAD_URL, {
             method: 'POST',
             headers: headers,
             body: formData,
@@ -37,17 +36,13 @@ const uploadFileRequestFromBuffer = async (fileBuffer, fileName, mimetype) => {
     }
 };
 const apiRequest = async (method, tableId, path = '', body) => {
-    if (!API_KEY) {
-        const errorMessage = "A chave da API do Baserow (BASEROW_API_TOKEN ou VITE_BASEROW_API_KEY) não foi encontrada no ambiente do servidor.";
-        console.error(errorMessage);
-        throw new Error(errorMessage);
-    }
+    const apiKey = getApiKey(); // Obter chave dinamicamente
     let finalUrl = `${BASE_URL}/${tableId}/${path}`;
     if (method === 'GET' || method === 'POST' || method === 'PATCH') {
         const separator = finalUrl.includes('?') ? '&' : '?';
         finalUrl += `${separator}user_field_names=true`;
     }
-    const headers = { 'Authorization': `Token ${API_KEY}` };
+    const headers = { 'Authorization': `Token ${apiKey}` };
     if (body && (method === 'POST' || method === 'PATCH')) {
         headers['Content-Type'] = 'application/json';
     }
@@ -56,7 +51,7 @@ const apiRequest = async (method, tableId, path = '', body) => {
         options.body = JSON.stringify(body);
     }
     try {
-        const response = await (0, node_fetch_1.default)(finalUrl, options);
+        const response = await fetch(finalUrl, options);
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({ detail: 'Não foi possível ler o corpo do erro.' }));
             console.error(`--- ERRO DETALHADO DO BASEROW (Status: ${response.status}) ---:`, errorData);
@@ -72,7 +67,7 @@ const apiRequest = async (method, tableId, path = '', body) => {
         throw error;
     }
 };
-exports.baserowServer = {
+export const baserowServer = {
     get: (tableId, params = '') => apiRequest('GET', tableId, params),
     getRow: (tableId, rowId) => apiRequest('GET', tableId, `${rowId}/`),
     post: (tableId, data) => apiRequest('POST', tableId, ``, data),

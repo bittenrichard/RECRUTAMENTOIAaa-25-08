@@ -1,0 +1,232 @@
+// Local: src/features/agenda/components/DailyEventsSidebar.tsx
+
+import React, { useState } from 'react';
+import { GoogleCalendarEvent } from '../../../shared/services/googleCalendarService';
+import { format, isSameDay } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import { Calendar, Eye } from 'lucide-react';
+import GoogleEventDetailModal from './GoogleEventDetailModal';
+
+interface DailyEventsSidebarProps {
+  selectedDate: Date;
+  googleEvents: GoogleCalendarEvent[];
+}
+
+const DailyEventsSidebar: React.FC<DailyEventsSidebarProps> = ({ 
+  selectedDate, 
+  googleEvents
+}) => {
+  const [selectedEvent, setSelectedEvent] = useState<GoogleCalendarEvent | null>(null);
+
+  const formattedDayOfWeek = format(selectedDate, 'EEEE', { locale: ptBR });
+  const formattedFullDate = format(selectedDate, "dd 'de' MMMM", { locale: ptBR });
+
+  // Filtrar eventos do Google Calendar para o dia selecionado
+  const filteredGoogleEvents = googleEvents.filter(event => {
+    const eventDate = new Date(event.start);
+    return isSameDay(eventDate, selectedDate);
+  }).sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+
+  const getEventMetadata = (event: GoogleCalendarEvent) => {
+    try {
+      if (event.description && event.description.startsWith('{')) {
+        return JSON.parse(event.description);
+      }
+    } catch {
+      // Ignorar se não for JSON válido
+    }
+    return null;
+  };
+
+  const getEventColor = (event: GoogleCalendarEvent) => {
+    const metadata = getEventMetadata(event);
+    if (metadata?.vaga?.cor) {
+      return metadata.vaga.cor;
+    }
+    if (metadata?.type === 'interview') {
+      return '#FFA500'; // Laranja para entrevistas
+    }
+    return '#3b82f6'; // Cor padrão azul
+  };
+
+  const isInterviewEvent = (event: GoogleCalendarEvent) => {
+    const metadata = getEventMetadata(event);
+    return metadata?.type === 'interview' || event.title.toLowerCase().includes('entrevista');
+  };
+
+  const handleViewDetails = (event: GoogleCalendarEvent) => {
+    setSelectedEvent(event);
+  };
+
+  const closeModal = () => {
+    setSelectedEvent(null);
+  };
+
+  return (
+    <>
+      <div className="p-6 h-full flex flex-col">
+        <h3 className="text-xl font-bold text-gray-800 mb-1">Compromissos do Dia</h3>
+        <p className="text-sm text-gray-500 mb-6 capitalize">{formattedDayOfWeek}, {formattedFullDate}</p>
+
+        <div className="flex-grow overflow-y-auto">
+          {filteredGoogleEvents.length === 0 ? (
+            <div className="text-center py-12">
+              <Calendar size={40} className="mx-auto text-gray-300 mb-3" />
+              <p className="text-gray-500 text-sm">Nenhum compromisso para este dia</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredGoogleEvents.map((event) => {
+                const eventDate = new Date(event.start);
+                const endDate = new Date(event.end);
+                const eventColor = getEventColor(event);
+                const isInterview = isInterviewEvent(event);
+                const metadata = getEventMetadata(event);
+
+                return (
+                  <div
+                    key={`google-${event.id}`}
+                    className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md hover:border-gray-300 transition-all duration-200 cursor-pointer group"
+                    onClick={() => handleViewDetails(event)}
+                  >
+                    <div className="flex items-start gap-3">
+                      {/* Time indicator */}
+                      <div className="flex-shrink-0">
+                        <div 
+                          className="w-12 h-12 rounded-lg flex flex-col items-center justify-center text-white text-xs font-medium"
+                          style={{ backgroundColor: eventColor }}
+                        >
+                          <span className="text-[10px] leading-none">
+                            {format(eventDate, 'HH:mm')}
+                          </span>
+                          <span className="text-[9px] opacity-80 leading-none">
+                            {format(endDate, 'HH:mm')}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Event content */}
+                      <div className="flex-grow min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          {isInterview && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                              Entrevista
+                            </span>
+                          )}
+                        </div>
+                        
+                        <h4 className="text-sm font-medium text-gray-900 leading-snug mb-1">
+                          {isInterview && metadata?.candidato?.nome 
+                            ? `${metadata.candidato.nome}`
+                            : event.title || 'Evento sem título'
+                          }
+                        </h4>
+                        
+                        {isInterview && metadata?.vaga && (
+                          <p className="text-xs text-gray-500 mb-2">
+                            {metadata.vaga.titulo}
+                          </p>
+                        )}
+                        
+                        {!isInterview && event.description && !event.description.startsWith('{') && (
+                          <p className="text-xs text-gray-500 line-clamp-2 mb-2">
+                            {event.description.length > 80 
+                              ? `${event.description.substring(0, 80)}...` 
+                              : event.description
+                            }
+                          </p>
+                        )}
+
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-gray-400">
+                            Google Calendar
+                          </span>
+                          <button className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-gray-100 rounded">
+                            <Eye size={14} className="text-gray-500" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                    <div className="flex-grow">
+                      <div className="flex items-center mb-2">
+                        <h4 className="text-sm font-bold leading-tight mr-2">
+                          {isInterview && metadata?.candidato?.nome 
+                            ? `Entrevista - ${metadata.candidato.nome}`
+                            : event.title || 'Evento sem título'
+                          }
+                        </h4>
+                        {isInterview && (
+                          <span className="bg-white/20 text-xs px-2 py-1 rounded-full font-medium">
+                            Entrevista
+                          </span>
+                        )}
+                      </div>
+                      
+                      {isInterview && metadata && (
+                        <div className="bg-black/20 rounded-lg p-2 mb-2">
+                          {metadata.candidato && (
+                            <div className="mb-1">
+                              <p className="text-xs font-semibold opacity-90">
+                                👤 Candidato:
+                              </p>
+                              <p className="text-sm font-medium">
+                                {metadata.candidato.nome}
+                              </p>
+                            </div>
+                          )}
+                          {metadata.vaga && (
+                            <p className="text-xs opacity-75">
+                              💼 {metadata.vaga.titulo}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      
+                      {!isInterview && (event.description || event.location) && (
+                        <div className="bg-black/20 rounded-lg p-2 mb-2">
+                          {event.description && !event.description.startsWith('{') && (
+                            <p className="text-xs opacity-90 mb-1">
+                              � {event.description.length > 80 
+                                ? `${event.description.substring(0, 80)}...` 
+                                : event.description
+                              }
+                            </p>
+                          )}
+                          {event.location && (
+                            <p className="text-xs opacity-75">
+                              📍 {event.location}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs opacity-75 flex items-center">
+                          📅 Google Calendar
+                        </span>
+                        <div className="flex items-center text-xs bg-white/20 px-2 py-1 rounded-full">
+                          <Eye size={12} className="mr-1" />
+                          <span>Ver detalhes</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Modal de Detalhes */}
+      <GoogleEventDetailModal 
+        event={selectedEvent} 
+        onClose={closeModal} 
+      />
+    </>
+  );
+};
+
+export default DailyEventsSidebar;

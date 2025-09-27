@@ -1,50 +1,82 @@
-"use strict";
 // Caminho: server.ts
 // SUBSTITUA O CONTEÚDO INTEIRO DESTE ARQUIVO
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-const dotenv_1 = __importDefault(require("dotenv"));
+import dotenv from 'dotenv';
+// Detecta o ambiente (default: development)
+const NODE_ENV = process.env.NODE_ENV || 'development';
+console.log(`[ENV] Carregando configurações para ambiente: ${NODE_ENV}`);
 // Carrega primeiro o .env padrão
-dotenv_1.default.config({ path: '.env' });
+const defaultEnvResult = dotenv.config({ path: '.env' });
+console.log(`[ENV] .env carregado:`, defaultEnvResult.error ? 'ERRO' : 'OK');
 // Depois carrega o específico do ambiente, sobrescrevendo se necessário
-dotenv_1.default.config({ path: `.env.${process.env.NODE_ENV || 'development'}`, override: false });
-const express_1 = __importDefault(require("express"));
-const cors_1 = __importDefault(require("cors"));
-const crypto_1 = __importDefault(require("crypto"));
-const googleapis_1 = require("googleapis");
-const baserowServerClient_js_1 = require("./src/shared/services/baserowServerClient.js");
-const node_fetch_1 = __importDefault(require("node-fetch"));
-const bcryptjs_1 = __importDefault(require("bcryptjs"));
-const multer_1 = __importDefault(require("multer"));
-const app = (0, express_1.default)();
+const envSpecificResult = dotenv.config({ path: `.env.${NODE_ENV}`, override: true });
+console.log(`[ENV] .env.${NODE_ENV} carregado:`, envSpecificResult.error ? 'ERRO' : 'OK');
+import express from 'express';
+import crypto from 'crypto';
+import { google } from 'googleapis';
+import { baserowServer } from './src/shared/services/baserowServerClient.js';
+import fetch from 'node-fetch';
+import bcrypt from 'bcryptjs';
+import multer from 'multer';
+const app = express();
 const port = process.env.PORT || 3001;
 // Configuração do Multer para upload de ficheiros em memória
-const storage = multer_1.default.memoryStorage();
-const upload = (0, multer_1.default)({
+const storage = multer.memoryStorage();
+const upload = multer({
     storage,
     limits: {
         fileSize: 100 * 1024 * 1024, // 100MB para vídeos
         fieldSize: 100 * 1024 * 1024 // 100MB para campos
     }
 });
-// Configuração de CORS para produção
-const corsOptions = {
-    origin: process.env.NODE_ENV === 'production'
-        ? [process.env.FRONTEND_URL, process.env.BACKEND_URL].filter(Boolean)
-        : '*',
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id'] // Adicionar header para sistema de usuários
-};
-app.use((0, cors_1.default)(corsOptions));
+// Configuração simplificada de CORS para produção
+app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    console.log(`[CORS] Request from origin: ${origin}, Method: ${req.method}, Path: ${req.path}`);
+    // Lista de origens permitidas
+    const allowedOrigins = [
+        'https://recrutamentoia.com.br',
+        'https://www.recrutamentoia.com.br',
+        'https://backend.recrutamentoia.com.br'
+    ];
+    // Em desenvolvimento, permite qualquer origem
+    if (process.env.NODE_ENV === 'development') {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+    // Em produção, verifica a lista de origens ou usa a origem da requisição se estiver na lista
+    else if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+    // Fallback para o domínio principal
+    else {
+        res.setHeader('Access-Control-Allow-Origin', 'https://recrutamentoia.com.br');
+    }
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-user-id');
+    res.setHeader('Access-Control-Max-Age', '86400'); // 24 horas
+    // Manipular requisições OPTIONS (preflight)
+    if (req.method === 'OPTIONS') {
+        console.log('[CORS] Handling OPTIONS preflight request');
+        res.status(204).send();
+        return;
+    }
+    next();
+});
 // Configurações de segurança para produção
 if (process.env.NODE_ENV === 'production') {
     app.set('trust proxy', process.env.TRUST_PROXY === 'true');
 }
-app.use(express_1.default.json({ limit: '100mb' }));
-app.use(express_1.default.urlencoded({ extended: true, limit: '100mb' }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
+// Endpoint de teste para verificar CORS
+app.get('/api/health', (req, res) => {
+    res.json({
+        status: 'OK',
+        timestamp: new Date().toISOString(),
+        cors: 'working',
+        environment: process.env.NODE_ENV
+    });
+});
 // Configuração de credenciais OAuth baseada no ambiente
 const isDevelopment = process.env.NODE_ENV === 'development';
 const GOOGLE_CLIENT_ID = isDevelopment ?
@@ -84,7 +116,7 @@ if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REDIRECT_URI) {
     console.error("Verifique as variáveis de ambiente no arquivo .env");
     // process.exit(1); // Removido para permitir desenvolvimento
 }
-const oauth2Client = new googleapis_1.google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI);
+const oauth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI);
 const USERS_TABLE_ID = '711';
 const VAGAS_TABLE_ID = '709';
 const CANDIDATOS_TABLE_ID = '710';
@@ -106,12 +138,12 @@ app.post('/api/auth/signup', async (req, res) => {
     }
     try {
         const emailLowerCase = email.toLowerCase();
-        const { results: existingUsers } = await baserowServerClient_js_1.baserowServer.get(USERS_TABLE_ID, `?filter__Email__equal=${emailLowerCase}`);
+        const { results: existingUsers } = await baserowServer.get(USERS_TABLE_ID, `?filter__Email__equal=${emailLowerCase}`);
         if (existingUsers && existingUsers.length > 0) {
             return res.status(409).json({ error: 'Este e-mail já está cadastrado.' });
         }
-        const hashedPassword = await bcryptjs_1.default.hash(password, SALT_ROUNDS);
-        const newUser = await baserowServerClient_js_1.baserowServer.post(USERS_TABLE_ID, {
+        const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+        const newUser = await baserowServer.post(USERS_TABLE_ID, {
             nome,
             empresa,
             telefone,
@@ -141,12 +173,12 @@ app.post('/api/auth/login', async (req, res) => {
     }
     try {
         const emailLowerCase = email.toLowerCase();
-        const { results: users } = await baserowServerClient_js_1.baserowServer.get(USERS_TABLE_ID, `?filter__Email__equal=${emailLowerCase}`);
+        const { results: users } = await baserowServer.get(USERS_TABLE_ID, `?filter__Email__equal=${emailLowerCase}`);
         const user = users && users[0];
         if (!user || !user.senha_hash) {
             return res.status(401).json({ error: 'E-mail ou senha inválidos.' });
         }
-        const passwordMatches = await bcryptjs_1.default.compare(password, user.senha_hash);
+        const passwordMatches = await bcrypt.compare(password, user.senha_hash);
         if (passwordMatches) {
             const userProfile = {
                 id: user.id,
@@ -177,23 +209,23 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     try {
         const emailLowerCase = email.toLowerCase();
         // 1. Buscar usuário no Baserow Users (711)
-        const { results: users } = await baserowServerClient_js_1.baserowServer.get(USERS_TABLE_ID, `?filter__Email__equal=${emailLowerCase}`);
+        const { results: users } = await baserowServer.get(USERS_TABLE_ID, `?filter__Email__equal=${emailLowerCase}`);
         const user = users && users[0];
         if (!user) {
             return res.status(404).json({ error: 'Email não encontrado.' });
         }
         // 2. Gerar token único
-        const resetToken = crypto_1.default.randomBytes(32).toString('hex');
+        const resetToken = crypto.randomBytes(32).toString('hex');
         const resetExpires = new Date(Date.now() + 3600000); // 1 hora
         // 3. Salvar no Baserow
-        await baserowServerClient_js_1.baserowServer.patch(USERS_TABLE_ID, user.id, {
+        await baserowServer.patch(USERS_TABLE_ID, user.id, {
             reset_token: resetToken,
             reset_expires: resetExpires.toISOString()
         });
         // 4. Disparar N8N webhook para envio de email (se configurado)
         if (N8N_EMAIL_WEBHOOK_URL) {
             try {
-                await (0, node_fetch_1.default)(N8N_EMAIL_WEBHOOK_URL, {
+                await fetch(N8N_EMAIL_WEBHOOK_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -229,15 +261,15 @@ app.post('/api/auth/reset-password', async (req, res) => {
     try {
         // 1. Validar token no Baserow
         const now = new Date().toISOString();
-        const { results: users } = await baserowServerClient_js_1.baserowServer.get(USERS_TABLE_ID, `?filter__reset_token__equal=${token}&filter__reset_expires__date_after=${now}`);
+        const { results: users } = await baserowServer.get(USERS_TABLE_ID, `?filter__reset_token__equal=${token}&filter__reset_expires__date_after=${now}`);
         const user = users && users[0];
         if (!user) {
             return res.status(400).json({ error: 'Token inválido ou expirado.' });
         }
         // 2. Hash nova senha
-        const hashedPassword = await bcryptjs_1.default.hash(newPassword, SALT_ROUNDS);
+        const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
         // 3. Atualizar no Baserow
-        await baserowServerClient_js_1.baserowServer.patch(USERS_TABLE_ID, user.id, {
+        await baserowServer.patch(USERS_TABLE_ID, user.id, {
             senha_hash: hashedPassword,
             reset_token: null,
             reset_expires: null
@@ -267,7 +299,7 @@ app.patch('/api/users/:userId/profile', async (req, res) => {
         if (Object.keys(updatedData).length === 0) {
             return res.status(400).json({ error: 'Nenhum dado para atualizar.' });
         }
-        const updatedUser = await baserowServerClient_js_1.baserowServer.patch(USERS_TABLE_ID, parseInt(userId), updatedData);
+        const updatedUser = await baserowServer.patch(USERS_TABLE_ID, parseInt(userId), updatedData);
         const userProfile = {
             id: updatedUser.id,
             nome: updatedUser.nome,
@@ -294,8 +326,8 @@ app.patch('/api/users/:userId/password', async (req, res) => {
         return res.status(400).json({ error: 'A senha deve ter no mínimo 6 caracteres.' });
     }
     try {
-        const hashedPassword = await bcryptjs_1.default.hash(password, SALT_ROUNDS);
-        await baserowServerClient_js_1.baserowServer.patch(USERS_TABLE_ID, parseInt(userId), { senha_hash: hashedPassword });
+        const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+        await baserowServer.patch(USERS_TABLE_ID, parseInt(userId), { senha_hash: hashedPassword });
         res.json({ success: true, message: 'Senha atualizada com sucesso!' });
     }
     catch (error) {
@@ -309,7 +341,7 @@ app.get('/api/users/:userId', async (req, res) => {
         return res.status(400).json({ error: 'ID do usuário é obrigatório.' });
     }
     try {
-        const user = await baserowServerClient_js_1.baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+        const user = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
         if (!user) {
             return res.status(404).json({ error: 'Usuário não encontrado.' });
         }
@@ -338,9 +370,9 @@ app.post('/api/upload-avatar', upload.single('avatar'), async (req, res) => {
         const fileBuffer = req.file.buffer;
         const fileName = req.file.originalname;
         const mimetype = req.file.mimetype;
-        const uploadedFile = await baserowServerClient_js_1.baserowServer.uploadFileFromBuffer(fileBuffer, fileName, mimetype);
+        const uploadedFile = await baserowServer.uploadFileFromBuffer(fileBuffer, fileName, mimetype);
         const newAvatarUrl = uploadedFile.url;
-        const updatedUser = await baserowServerClient_js_1.baserowServer.patch(USERS_TABLE_ID, parseInt(userId), { avatar_url: newAvatarUrl });
+        const updatedUser = await baserowServer.patch(USERS_TABLE_ID, parseInt(userId), { avatar_url: newAvatarUrl });
         const userProfile = {
             id: updatedUser.id,
             nome: updatedUser.nome,
@@ -358,12 +390,22 @@ app.post('/api/upload-avatar', upload.single('avatar'), async (req, res) => {
     }
 });
 app.post('/api/jobs', async (req, res) => {
+    console.log('[POST /api/jobs] === INICIO DA REQUISIÇÃO ===');
+    console.log('[POST /api/jobs] Body recebido:', JSON.stringify(req.body, null, 2));
     const { titulo, descricao, endereco, requisitos_obrigatorios, requisitos_desejaveis, usuario } = req.body;
+    console.log('[POST /api/jobs] Campos extraídos:');
+    console.log('[POST /api/jobs] - titulo:', titulo);
+    console.log('[POST /api/jobs] - descricao:', descricao);
+    console.log('[POST /api/jobs] - usuario:', usuario);
+    console.log('[POST /api/jobs] - typeof usuario:', typeof usuario);
+    console.log('[POST /api/jobs] - Array.isArray(usuario):', Array.isArray(usuario));
+    console.log('[POST /api/jobs] - usuario.length:', usuario?.length);
     if (!titulo || !descricao || !usuario || usuario.length === 0) {
+        console.log('[POST /api/jobs] ERRO: Validação falhou');
         return res.status(400).json({ error: 'Título, descrição e ID do usuário são obrigatórios.' });
     }
     try {
-        const createdJob = await baserowServerClient_js_1.baserowServer.post(VAGAS_TABLE_ID, {
+        const createdJob = await baserowServer.post(VAGAS_TABLE_ID, {
             titulo,
             descricao,
             Endereco: endereco,
@@ -385,7 +427,7 @@ app.patch('/api/jobs/:jobId', async (req, res) => {
         return res.status(400).json({ error: 'ID da vaga e dados para atualização são obrigatórios.' });
     }
     try {
-        const updatedJob = await baserowServerClient_js_1.baserowServer.patch(VAGAS_TABLE_ID, parseInt(jobId), updatedData);
+        const updatedJob = await baserowServer.patch(VAGAS_TABLE_ID, parseInt(jobId), updatedData);
         res.json(updatedJob);
     }
     catch (error) {
@@ -399,7 +441,7 @@ app.delete('/api/jobs/:jobId', async (req, res) => {
         return res.status(400).json({ error: 'ID da vaga é obrigatório.' });
     }
     try {
-        await baserowServerClient_js_1.baserowServer.delete(VAGAS_TABLE_ID, parseInt(jobId));
+        await baserowServer.delete(VAGAS_TABLE_ID, parseInt(jobId));
         res.status(204).send();
     }
     catch (error) {
@@ -444,7 +486,7 @@ app.patch('/api/candidates/:candidateId/status', async (req, res) => {
         return res.status(400).json({ error: 'Status fornecido é inválido.' });
     }
     try {
-        const updatedCandidate = await baserowServerClient_js_1.baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), { status: status });
+        const updatedCandidate = await baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), { status: status });
         res.json(updatedCandidate);
     }
     catch (error) {
@@ -473,10 +515,10 @@ app.post('/api/candidates/:candidateId/video-interview', upload.single('video'),
     }
     try {
         console.log(`[Upload Video] Processando upload para candidato ${candidateId}, arquivo: ${file.originalname}, tamanho: ${file.size} bytes`);
-        const uploadedFileData = await baserowServerClient_js_1.baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
+        const uploadedFileData = await baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
         console.log(`[Upload Video] Arquivo enviado para Baserow:`, uploadedFileData);
         // Atualiza a linha do candidato com o ficheiro de vídeo
-        const updatedCandidate = await baserowServerClient_js_1.baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), {
+        const updatedCandidate = await baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), {
             video_entrevista: [{ name: uploadedFileData.name, url: uploadedFileData.url }],
         });
         console.log(`[Upload Video] Candidato atualizado com sucesso`);
@@ -501,10 +543,10 @@ app.post('/api/candidates/:candidateId/theoretical-test', upload.single('testRes
         return res.status(400).json({ error: 'Nenhum ficheiro de resultado foi enviado.' });
     }
     try {
-        const uploadedFileData = await baserowServerClient_js_1.baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
+        const uploadedFileData = await baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
         // Atualiza a linha do candidato com o resultado do teste
         // O nome do campo deve ser EXATAMENTE o mesmo que está no Baserow: `resultado_teste_teorico`
-        const updatedCandidate = await baserowServerClient_js_1.baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), {
+        const updatedCandidate = await baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), {
             resultado_teste_teorico: [{ name: uploadedFileData.name, url: uploadedFileData.url }],
         });
         res.status(200).json({
@@ -526,7 +568,7 @@ app.patch('/api/candidates/:candidateId/update-contact', async (req, res) => {
     }
     try {
         // Atualiza o campo ultima_atualizacao com a data atual
-        const updatedCandidate = await baserowServerClient_js_1.baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), {
+        const updatedCandidate = await baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), {
             ultima_atualizacao: new Date().toISOString(),
         });
         res.status(200).json({
@@ -548,13 +590,13 @@ app.get('/api/data/all/:userId', async (req, res) => {
         return res.status(400).json({ error: 'ID do usuário é obrigatório.' });
     }
     try {
-        const jobsResult = await baserowServerClient_js_1.baserowServer.get(VAGAS_TABLE_ID, '');
+        const jobsResult = await baserowServer.get(VAGAS_TABLE_ID, '');
         const allJobs = (jobsResult.results || []);
         const userJobs = allJobs.filter((job) => job.usuario && job.usuario.some((user) => user.id === parseInt(userId)));
         const userJobIds = new Set(userJobs.map(job => job.id));
         const jobsMapByTitle = new Map(userJobs.map((job) => [job.titulo.toLowerCase().trim(), job]));
         const jobsMapById = new Map(userJobs.map((job) => [job.id, job]));
-        const behavioralTestsResult = await baserowServerClient_js_1.baserowServer.get(TESTE_COMPORTAMENTAL_TABLE_ID, `?filter__recrutador__link_row_has=${userId}`);
+        const behavioralTestsResult = await baserowServer.get(TESTE_COMPORTAMENTAL_TABLE_ID, `?filter__recrutador__link_row_has=${userId}`);
         const allBehavioralTests = behavioralTestsResult.results || [];
         const behavioralTestMap = new Map();
         allBehavioralTests.forEach(test => {
@@ -563,8 +605,8 @@ app.get('/api/data/all/:userId', async (req, res) => {
                 behavioralTestMap.set(candidateId, test);
             }
         });
-        const regularCandidatesResult = await baserowServerClient_js_1.baserowServer.get(CANDIDATOS_TABLE_ID, '');
-        const whatsappCandidatesResult = await baserowServerClient_js_1.baserowServer.get(WHATSAPP_CANDIDATOS_TABLE_ID, '');
+        const regularCandidatesResult = await baserowServer.get(CANDIDATOS_TABLE_ID, '');
+        const whatsappCandidatesResult = await baserowServer.get(WHATSAPP_CANDIDATOS_TABLE_ID, '');
         const allCandidatesRaw = [
             ...(regularCandidatesResult.results || []),
             ...(whatsappCandidatesResult.results || [])
@@ -629,7 +671,7 @@ app.post('/api/upload-curriculums', upload.array('curriculumFiles'), async (req,
             if (file.size > 5 * 1024 * 1024) {
                 return res.status(400).json({ success: false, message: `O arquivo '${file.originalname}' é muito grande. O limite é de 5MB.` });
             }
-            const uploadedFile = await baserowServerClient_js_1.baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
+            const uploadedFile = await baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
             const newCandidateData = {
                 nome: file.originalname.split('.')[0] || 'Novo Candidato',
                 curriculo: [{ name: uploadedFile.name, url: uploadedFile.url }],
@@ -639,11 +681,11 @@ app.post('/api/upload-curriculums', upload.array('curriculumFiles'), async (req,
                 resumo_ia: null,
                 status: 'Triagem',
             };
-            const createdCandidate = await baserowServerClient_js_1.baserowServer.post(CANDIDATOS_TABLE_ID, newCandidateData);
+            const createdCandidate = await baserowServer.post(CANDIDATOS_TABLE_ID, newCandidateData);
             newCandidateEntries.push(createdCandidate);
         }
-        const jobInfo = await baserowServerClient_js_1.baserowServer.getRow(VAGAS_TABLE_ID, parseInt(jobId));
-        const userInfo = await baserowServerClient_js_1.baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+        const jobInfo = await baserowServer.getRow(VAGAS_TABLE_ID, parseInt(jobId));
+        const userInfo = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
         if (N8N_TRIAGEM_WEBHOOK_URL && newCandidateEntries.length > 0 && jobInfo && userInfo) {
             const candidatosParaWebhook = newCandidateEntries.map(candidate => ({
                 id: candidate.id,
@@ -659,7 +701,7 @@ app.post('/api/upload-curriculums', upload.array('curriculumFiles'), async (req,
                 vaga: { id: jobInfo.id, titulo: jobInfo.titulo, descricao: jobInfo.descricao, endereco: jobInfo.Endereco, requisitos_obrigatorios: jobInfo.requisitos_obrigatorios, requisitos_desejaveis: jobInfo.requisitos_desejaveis },
                 candidatos: candidatosParaWebhook
             };
-            const n8nResponse = await (0, node_fetch_1.default)(N8N_TRIAGEM_WEBHOOK_URL, {
+            const n8nResponse = await fetch(N8N_TRIAGEM_WEBHOOK_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(webhookPayload)
@@ -704,7 +746,7 @@ app.post('/api/upload', upload.any(), async (req, res) => {
             // Converter arquivo para base64
             const base64Content = file.buffer.toString('base64');
             console.log(`[UPLOAD DEBUG] Base64 gerado para ${file.originalname}, tamanho: ${base64Content.length} chars`);
-            const uploadedFile = await baserowServerClient_js_1.baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
+            const uploadedFile = await baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
             const newCandidateData = {
                 nome: file.originalname.split('.')[0] || 'Novo Candidato',
                 curriculo: [{ name: uploadedFile.name, url: uploadedFile.url }],
@@ -714,7 +756,7 @@ app.post('/api/upload', upload.any(), async (req, res) => {
                 resumo_ia: null,
                 status: 'Triagem',
             };
-            const createdCandidate = await baserowServerClient_js_1.baserowServer.post(CANDIDATOS_TABLE_ID, newCandidateData);
+            const createdCandidate = await baserowServer.post(CANDIDATOS_TABLE_ID, newCandidateData);
             newCandidateEntries.push(createdCandidate);
             // Armazenar arquivo com base64 para o webhook
             filesWithBase64.push({
@@ -725,8 +767,8 @@ app.post('/api/upload', upload.any(), async (req, res) => {
                 candidateId: createdCandidate.id
             });
         }
-        const jobInfo = await baserowServerClient_js_1.baserowServer.getRow(VAGAS_TABLE_ID, parseInt(jobId));
-        const userInfo = await baserowServerClient_js_1.baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+        const jobInfo = await baserowServer.getRow(VAGAS_TABLE_ID, parseInt(jobId));
+        const userInfo = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
         if (N8N_TRIAGEM_WEBHOOK_URL && newCandidateEntries.length > 0 && jobInfo && userInfo) {
             const candidatosParaWebhook = newCandidateEntries.map(candidate => {
                 // Encontrar o arquivo base64 correspondente ao candidato
@@ -757,7 +799,7 @@ app.post('/api/upload', upload.any(), async (req, res) => {
                 vaga: { id: jobInfo.id, titulo: jobInfo.titulo, descricao: jobInfo.descricao, endereco: jobInfo.Endereco, requisitos_obrigatorios: jobInfo.requisitos_obrigatorios, requisitos_desejaveis: jobInfo.requisitos_desejaveis },
                 candidatos: candidatosParaWebhook
             };
-            const n8nResponse = await (0, node_fetch_1.default)(N8N_TRIAGEM_WEBHOOK_URL, {
+            const n8nResponse = await fetch(N8N_TRIAGEM_WEBHOOK_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(webhookPayload)
@@ -784,7 +826,7 @@ app.get('/api/schedules/:userId', async (req, res) => {
         return res.status(400).json({ error: 'ID do usuário é obrigatório.' });
     }
     try {
-        const { results } = await baserowServerClient_js_1.baserowServer.get(AGENDAMENTOS_TABLE_ID, `?filter__Candidato__usuario__link_row_has=${userId}`);
+        const { results } = await baserowServer.get(AGENDAMENTOS_TABLE_ID, `?filter__Candidato__usuario__link_row_has=${userId}`);
         res.json({ success: true, results: results || [] });
     }
     catch (error) {
@@ -797,7 +839,8 @@ app.get('/api/google/auth/connect', (req, res) => {
     if (!userId) {
         return res.status(400).json({ error: 'userId é obrigatório' });
     }
-    const scopes = ['https://www.googleapis.com/auth/calendar.events'];
+    // 🔧 ESCOPO AMPLIADO para melhor compatibilidade
+    const scopes = ['https://www.googleapis.com/auth/calendar'];
     // Para desenvolvimento local, usar configuração específica
     const isDevelopment = process.env.NODE_ENV === 'development';
     console.log('[Google Auth Connect] Ambiente:', isDevelopment ? 'desenvolvimento' : 'produção');
@@ -807,9 +850,185 @@ app.get('/api/google/auth/connect', (req, res) => {
         scope: scopes,
         prompt: 'consent',
         state: userId.toString(),
+        include_granted_scopes: true, // 🔧 Melhor compatibilidade
     });
     console.log('[Google Auth Connect] URL gerada:', url);
     res.json({ url });
+});
+// 🔄 ENDPOINT: SINCRONIZAÇÃO FORÇADA TOTAL
+app.post('/api/google/calendar/force-sync/:userId', async (req, res) => {
+    const { userId } = req.params;
+    try {
+        console.log(`[FORCE SYNC] 🔄 Iniciando sincronização TOTAL para userId: ${userId}`);
+        // Buscar usuário e tokens
+        const userRow = await baserowServer.get(USERS_TABLE_ID, userId);
+        const refreshToken = userRow.google_refresh_token;
+        if (!refreshToken) {
+            return res.status(400).json({
+                error: 'Google Calendar não conectado',
+                success: false
+            });
+        }
+        // Configurar cliente OAuth2
+        oauth2Client.setCredentials({ refresh_token: refreshToken });
+        const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+        // 🎯 SINCRONIZAÇÃO AGRESSIVA: Buscar MUITO mais eventos
+        const timeMin = new Date();
+        timeMin.setMonth(timeMin.getMonth() - 6); // 6 meses atrás
+        const timeMax = new Date();
+        timeMax.setMonth(timeMax.getMonth() + 12); // 12 meses à frente
+        console.log(`[FORCE SYNC] 📅 Período TOTAL:`, {
+            timeMin: timeMin.toISOString(),
+            timeMax: timeMax.toISOString()
+        });
+        // 🔧 PAGINAÇÃO CORRETA: maxResults máximo 2500
+        const allEvents = [];
+        let pageToken;
+        do {
+            const response = await calendar.events.list({
+                calendarId: 'primary',
+                timeMin: timeMin.toISOString(),
+                timeMax: timeMax.toISOString(),
+                singleEvents: true,
+                orderBy: 'startTime',
+                maxResults: 2500, // Máximo permitido pela API
+                pageToken
+            });
+            const events = response.data.items || [];
+            allEvents.push(...events);
+            pageToken = response.data.nextPageToken || undefined;
+            console.log(`[FORCE SYNC] 📄 Página carregada: ${events.length} eventos (total: ${allEvents.length})`);
+        } while (pageToken);
+        console.log(`[FORCE SYNC] 📊 TOTAL de eventos encontrados: ${allEvents.length}`);
+        const events = allEvents;
+        // Log dos primeiros eventos para debug
+        if (events.length > 0) {
+            console.log(`[FORCE SYNC] 🔍 PRIMEIROS 5 EVENTOS:`);
+            events.slice(0, 5).forEach((event, i) => {
+                console.log(`[${i + 1}]`, {
+                    summary: event.summary || '⚠️ SEM TÍTULO',
+                    start: event.start?.dateTime || event.start?.date,
+                    hasAttendees: !!event.attendees?.length,
+                    hasLocation: !!event.location,
+                    hasDescription: !!event.description
+                });
+            });
+        }
+        res.json({
+            success: true,
+            message: `Sincronização forçada concluída`,
+            totalEvents: events.length,
+            timeRange: {
+                from: timeMin.toISOString(),
+                to: timeMax.toISOString()
+            },
+            sampleEvents: events.slice(0, 3).map((event) => ({
+                id: event.id,
+                title: event.summary || `📅 Compromisso ${event.start?.dateTime || event.start?.date}`,
+                start: event.start?.dateTime || event.start?.date,
+                end: event.end?.dateTime || event.end?.date
+            }))
+        });
+    }
+    catch (error) {
+        // 🚨 LOGS DETALHADOS para force sync
+        console.error('[FORCE SYNC] ❌ ERRO DETALHADO:', {
+            message: error.message,
+            statusCode: error?.response?.status,
+            statusText: error?.response?.statusText,
+            responseData: error?.response?.data,
+            errorCode: error?.code
+        });
+        res.status(500).json({
+            success: false,
+            error: 'Erro na sincronização forçada',
+            details: error?.response?.data || error.message,
+            statusCode: error?.response?.status
+        });
+    }
+});
+// 🎯 ENDPOINT: Detectar disponibilidade para entrevistas
+app.get('/api/google/availability/:userId', async (req, res) => {
+    const { userId } = req.params;
+    const { date, duration = 60 } = req.query; // duração em minutos, padrão 1h
+    try {
+        console.log(`[AVAILABILITY] Verificando disponibilidade para userId: ${userId}`);
+        // Buscar usuário e refresh token
+        const userRow = await baserowServer.get(USERS_TABLE_ID, userId);
+        const refreshToken = userRow.google_refresh_token;
+        if (!refreshToken) {
+            return res.status(400).json({
+                error: 'Google Calendar não conectado',
+                availableSlots: []
+            });
+        }
+        // Configurar OAuth2 client
+        oauth2Client.setCredentials({ refresh_token: refreshToken });
+        const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+        // Definir período de busca (dia específico ou próximos 7 dias)
+        const searchDate = date ? new Date(date) : new Date();
+        const timeMin = new Date(searchDate);
+        timeMin.setHours(8, 0, 0, 0); // 8:00 AM
+        const timeMax = new Date(searchDate);
+        timeMax.setHours(18, 0, 0, 0); // 6:00 PM
+        console.log(`[AVAILABILITY] Buscando eventos entre: ${timeMin.toISOString()} e ${timeMax.toISOString()}`);
+        // Buscar eventos do dia
+        const response = await calendar.events.list({
+            calendarId: 'primary',
+            timeMin: timeMin.toISOString(),
+            timeMax: timeMax.toISOString(),
+            singleEvents: true,
+            orderBy: 'startTime',
+        });
+        const events = response.data.items || [];
+        const busySlots = events
+            .filter((event) => event.start?.dateTime && event.end?.dateTime)
+            .map((event) => ({
+            start: new Date(event.start.dateTime),
+            end: new Date(event.end.dateTime),
+            title: event.summary || 'Ocupado'
+        }));
+        // Gerar slots disponíveis
+        const availableSlots = [];
+        const slotDuration = parseInt(duration);
+        let currentTime = new Date(timeMin);
+        while (currentTime < timeMax) {
+            const slotEnd = new Date(currentTime.getTime() + slotDuration * 60 * 1000);
+            // Verificar se o slot não conflita com eventos existentes
+            const hasConflict = busySlots.some(busy => (currentTime >= busy.start && currentTime < busy.end) ||
+                (slotEnd > busy.start && slotEnd <= busy.end) ||
+                (currentTime <= busy.start && slotEnd >= busy.end));
+            if (!hasConflict && slotEnd <= timeMax) {
+                availableSlots.push({
+                    start: new Date(currentTime),
+                    end: new Date(slotEnd),
+                    duration: slotDuration,
+                    timeLabel: currentTime.toLocaleTimeString('pt-BR', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        timeZone: 'America/Sao_Paulo'
+                    })
+                });
+            }
+            // Avançar 30 minutos
+            currentTime = new Date(currentTime.getTime() + 30 * 60 * 1000);
+        }
+        console.log(`[AVAILABILITY] Encontrados ${availableSlots.length} slots disponíveis`);
+        res.json({
+            success: true,
+            date: searchDate.toISOString().split('T')[0],
+            busySlots,
+            availableSlots,
+            suggestions: availableSlots.slice(0, 6) // Top 6 sugestões
+        });
+    }
+    catch (error) {
+        console.error('[AVAILABILITY] Erro:', error);
+        res.status(500).json({
+            error: 'Erro ao verificar disponibilidade',
+            availableSlots: []
+        });
+    }
 });
 app.get('/api/google/auth/callback', async (req, res) => {
     const { code, state: userId } = req.query;
@@ -829,7 +1048,7 @@ app.get('/api/google/auth/callback', async (req, res) => {
         const { refresh_token } = tokens;
         if (refresh_token) {
             console.log('[Google Auth Callback] Salvando refresh_token para userId:', userId);
-            await baserowServerClient_js_1.baserowServer.patch(USERS_TABLE_ID, parseInt(userId), {
+            await baserowServer.patch(USERS_TABLE_ID, parseInt(userId), {
                 google_refresh_token: refresh_token
             });
             console.log('[Google Auth Callback] Refresh token salvo com sucesso');
@@ -848,7 +1067,7 @@ app.get('/api/google/auth/callback', async (req, res) => {
 });
 app.post('/api/google/auth/disconnect', async (req, res) => {
     const { userId } = req.body;
-    await baserowServerClient_js_1.baserowServer.patch(USERS_TABLE_ID, parseInt(userId), { google_refresh_token: null });
+    await baserowServer.patch(USERS_TABLE_ID, parseInt(userId), { google_refresh_token: null });
     res.json({ success: true, message: 'Conta Google desconectada.' });
 });
 app.get('/api/google/auth/status', async (req, res) => {
@@ -856,7 +1075,7 @@ app.get('/api/google/auth/status', async (req, res) => {
     if (!userId)
         return res.status(400).json({ error: 'userId é obrigatório' });
     try {
-        const userResponse = await baserowServerClient_js_1.baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+        const userResponse = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
         const isConnected = !!userResponse.google_refresh_token;
         res.json({ isConnected });
     }
@@ -865,42 +1084,140 @@ app.get('/api/google/auth/status', async (req, res) => {
         res.status(500).json({ error: 'Erro ao verificar status da conexão.' });
     }
 });
+// Endpoint de debug detalhado
+app.get('/api/google/auth/debug/:userId', async (req, res) => {
+    const { userId } = req.params;
+    try {
+        console.log(`[DEBUG] Verificando usuário ${userId}...`);
+        const userResponse = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+        const debugInfo = {
+            userId: parseInt(userId),
+            hasRefreshToken: !!userResponse.google_refresh_token,
+            refreshTokenPreview: userResponse.google_refresh_token ?
+                `${userResponse.google_refresh_token.substring(0, 10)}...` : null,
+            userEmail: userResponse.email || 'N/A',
+            userName: userResponse.name || 'N/A',
+            lastUpdated: userResponse.updated_on || 'N/A'
+        };
+        // Testar se o token funciona
+        if (userResponse.google_refresh_token) {
+            try {
+                oauth2Client.setCredentials({ refresh_token: userResponse.google_refresh_token });
+                const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+                const testResponse = await calendar.events.list({
+                    calendarId: 'primary',
+                    maxResults: 1,
+                    timeMin: new Date().toISOString()
+                });
+                debugInfo.tokenTest = {
+                    status: 'válido',
+                    canAccessCalendar: true,
+                    testEventCount: testResponse.data.items?.length || 0
+                };
+            }
+            catch (tokenError) {
+                debugInfo.tokenTest = {
+                    status: 'inválido',
+                    canAccessCalendar: false,
+                    error: tokenError.message
+                };
+            }
+        }
+        console.log(`[DEBUG] Info do usuário ${userId}:`, debugInfo);
+        res.json(debugInfo);
+    }
+    catch (error) {
+        console.error(`[DEBUG] Erro ao verificar usuário ${userId}:`, error);
+        res.status(500).json({ error: 'Erro ao verificar usuário', details: error.message });
+    }
+});
 app.post('/api/google/calendar/create-event', async (req, res) => {
+    console.log('[DEBUG] =========================');
+    console.log('[DEBUG] Nova requisição de criação de evento');
+    console.log('[DEBUG] Body recebido:', JSON.stringify(req.body, null, 2));
     const { userId, eventData, candidate, job } = req.body;
     if (!userId || !eventData || !candidate || !job) {
+        console.log('[DEBUG] ❌ Dados insuficientes:', { userId: !!userId, eventData: !!eventData, candidate: !!candidate, job: !!job });
         return res.status(400).json({ success: false, message: 'Dados insuficientes.' });
     }
     try {
-        const userResponse = await baserowServerClient_js_1.baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+        console.log('[DEBUG] 🔍 Buscando usuário ID:', userId);
+        const userResponse = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+        console.log('[DEBUG] 👤 Usuário encontrado:', userResponse.nome);
         const refreshToken = userResponse.google_refresh_token;
+        console.log('[DEBUG] 🔑 Refresh token presente:', !!refreshToken);
         if (!refreshToken) {
+            console.log('[DEBUG] ❌ Usuário não tem refresh token');
             return res.status(401).json({ success: false, message: 'Usuário não conectado ao Google Calendar. Por favor, conecte sua conta em "Configurações".' });
         }
+        console.log('[DEBUG] 🔧 Configurando OAuth2 client...');
         oauth2Client.setCredentials({ refresh_token: refreshToken });
-        const calendar = googleapis_1.google.calendar({ version: 'v3', auth: oauth2Client });
-        const eventDescription = `Entrevista com o candidato: ${candidate.nome}.\n` +
-            `Telefone: ${candidate.telefone || 'Não informado'}\n\n` +
-            `--- Detalhes adicionais ---\n` +
-            `${eventData.details || 'Nenhum detalhe adicional.'}`;
+        const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+        // SIMPLIFICADO: Apenas informações básicas no Google Calendar
+        console.log('[DEBUG] 📅 Dados recebidos - start:', eventData.start, 'end:', eventData.end);
+        // Corrigir formato de data se necessário
+        const startDate = new Date(eventData.start);
+        const endDate = new Date(eventData.end);
+        console.log('[DEBUG] 📅 Datas convertidas - start:', startDate.toISOString(), 'end:', endDate.toISOString());
         const event = {
-            summary: eventData.title,
-            description: eventDescription,
-            start: { dateTime: eventData.start, timeZone: 'America/Sao_Paulo' },
-            end: { dateTime: eventData.end, timeZone: 'America/Sao_Paulo' },
-            reminders: { useDefault: true },
+            summary: `Entrevista - ${candidate.nome}`,
+            description: `Entrevista com ${candidate.nome} para a vaga: ${job.titulo}`,
+            start: {
+                dateTime: startDate.toISOString(),
+                timeZone: 'America/Sao_Paulo'
+            },
+            end: {
+                dateTime: endDate.toISOString(),
+                timeZone: 'America/Sao_Paulo'
+            },
+            reminders: {
+                useDefault: false,
+                overrides: [
+                    { method: 'popup', minutes: 30 },
+                    { method: 'email', minutes: 60 }
+                ]
+            },
+            // Forçar visibilidade
+            visibility: 'default',
+            // Adicionar localização se disponível
+            location: 'Entrevista Online'
         };
+        console.log('[DEBUG] 📅 Criando evento no Google Calendar...');
+        console.log('[DEBUG] 📝 Dados do evento:', JSON.stringify(event, null, 2));
+        // Verificar acesso ao calendário antes de criar
+        try {
+            const calendarList = await calendar.calendarList.list();
+            console.log('[DEBUG] 📋 Calendários disponíveis:', calendarList.data.items?.length);
+            const primaryCalendar = calendarList.data.items?.find(cal => cal.id === 'primary');
+            console.log('[DEBUG] 📋 Calendário primário encontrado:', !!primaryCalendar);
+            console.log('[DEBUG] 📋 Acesso de escrita:', primaryCalendar?.accessRole);
+        }
+        catch (calError) {
+            console.error('[DEBUG] ❌ Erro ao verificar calendários:', calError);
+        }
         const response = await calendar.events.insert({
-            calendarId: 'primary', requestBody: event,
+            calendarId: 'primary',
+            requestBody: event,
+            sendNotifications: true // Enviar notificações
         });
-        await baserowServerClient_js_1.baserowServer.post(AGENDAMENTOS_TABLE_ID, {
-            'Título': eventData.title,
-            'Início': eventData.start,
-            'Fim': eventData.end,
-            'Detalhes': eventData.details,
-            'Candidato': [candidate.id],
-            'Vaga': [job.id],
-            'google_event_link': response.data.htmlLink
-        });
+        console.log('[DEBUG] ✅ Evento criado com sucesso!');
+        console.log('[DEBUG] 🆔 ID do evento:', response.data.id);
+        console.log('[DEBUG] 🔗 Link do evento:', response.data.htmlLink);
+        console.log('[DEBUG] 📊 Status da resposta:', response.status);
+        console.log('[DEBUG] 📅 Data/hora do evento criado:', response.data.start?.dateTime);
+        // Verificar se o evento foi realmente criado fazendo uma busca
+        try {
+            console.log('[DEBUG] 🔍 Verificando se evento foi criado...');
+            const createdEvent = await calendar.events.get({
+                calendarId: 'primary',
+                eventId: response.data.id
+            });
+            console.log('[DEBUG] ✅ Evento confirmado no Google Calendar:', createdEvent.data.summary);
+            console.log('[DEBUG] 📅 Horário confirmado:', createdEvent.data.start?.dateTime);
+        }
+        catch (verifyError) {
+            console.error('[DEBUG] ❌ Erro ao verificar evento criado:', verifyError);
+        }
         if (process.env.N8N_SCHEDULE_WEBHOOK_URL) {
             const webhookPayload = {
                 recruiter: userResponse, candidate: candidate, job: job,
@@ -909,7 +1226,7 @@ app.post('/api/google/calendar/create-event', async (req, res) => {
                     details: eventData.details, googleEventLink: response.data.htmlLink
                 }
             };
-            (0, node_fetch_1.default)(process.env.N8N_SCHEDULE_WEBHOOK_URL, {
+            fetch(process.env.N8N_SCHEDULE_WEBHOOK_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(webhookPayload)
@@ -917,18 +1234,309 @@ app.post('/api/google/calendar/create-event', async (req, res) => {
                 console.error("Erro ao disparar o webhook para o n8n:", webhookError);
             });
         }
-        res.json({ success: true, message: 'Evento criado com sucesso!', data: response.data });
+        res.json({
+            success: true,
+            message: 'Evento criado com sucesso!',
+            data: {
+                id: response.data.id,
+                htmlLink: response.data.htmlLink,
+                summary: response.data.summary,
+                start: response.data.start,
+                end: response.data.end
+            }
+        });
     }
     catch (error) {
         console.error('Erro ao criar evento no Google Calendar:', error);
         res.status(500).json({ success: false, message: 'Falha ao criar evento.' });
     }
 });
+// Endpoint para verificar um evento específico
+app.get('/api/google/calendar/event/:userId/:eventId', async (req, res) => {
+    const { userId, eventId } = req.params;
+    try {
+        const userResponse = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+        const refreshToken = userResponse.google_refresh_token;
+        if (!refreshToken) {
+            return res.status(401).json({ success: false, message: 'Usuário não conectado ao Google Calendar.' });
+        }
+        oauth2Client.setCredentials({ refresh_token: refreshToken });
+        const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+        const event = await calendar.events.get({
+            calendarId: 'primary',
+            eventId: eventId
+        });
+        res.json({
+            success: true,
+            event: {
+                id: event.data.id,
+                summary: event.data.summary,
+                description: event.data.description,
+                start: event.data.start,
+                end: event.data.end,
+                htmlLink: event.data.htmlLink
+            }
+        });
+    }
+    catch (error) {
+        console.error('Erro ao buscar evento específico:', error);
+        res.status(500).json({ success: false, message: 'Erro ao buscar evento.' });
+    }
+});
+// Endpoint para listar eventos do Google Calendar sincronizados
+app.get('/api/google/calendar/events/:userId', async (req, res) => {
+    const { userId } = req.params;
+    console.log(`[GOOGLE CALENDAR] Buscando eventos para userId: ${userId}`);
+    try {
+        console.log(`[GOOGLE CALENDAR] Fazendo busca do usuário na tabela ${USERS_TABLE_ID}`);
+        const userResponse = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+        console.log(`[GOOGLE CALENDAR] Resposta do usuário:`, userResponse);
+        const refreshToken = userResponse.google_refresh_token;
+        console.log(`[GOOGLE CALENDAR] Refresh token presente:`, !!refreshToken);
+        if (!refreshToken) {
+            console.log(`[GOOGLE CALENDAR] Usuário ${userId} não tem refresh token`);
+            return res.status(401).json({ success: false, message: 'Usuário não conectado ao Google Calendar.' });
+        }
+        console.log(`[GOOGLE CALENDAR] Configurando OAuth2 client com refresh token`);
+        oauth2Client.setCredentials({ refresh_token: refreshToken });
+        const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+        // 🎯 PERÍODO COMPLETO: Buscar TODOS os eventos (passado + presente + futuro)
+        const timeMin = new Date('2025-09-01T00:00:00Z'); // Todo setembro 2025
+        const timeMax = new Date('2026-01-01T00:00:00Z'); // Até janeiro 2026
+        console.log(`[GOOGLE CALENDAR] 🎯 PERÍODO COMPLETO - Todo setembro 2025:`, {
+            timeMin: timeMin.toISOString(),
+            timeMax: timeMax.toISOString(),
+            hoje: new Date().toISOString(),
+            buscandoTodos: 'SIM - incluindo calendários compartilhados'
+        });
+        // 🔄 BUSCA EM MÚLTIPLOS CALENDÁRIOS
+        const allEvents = [];
+        // 1. Buscar lista de calendários do usuário
+        const calendarList = await calendar.calendarList.list({
+            maxResults: 250
+        });
+        const calendars = calendarList.data.items || [];
+        console.log(`[GOOGLE CALENDAR] 📅 Calendários encontrados: ${calendars.length}`);
+        // 2. Buscar eventos em cada calendário
+        for (const cal of calendars) {
+            if (!cal.id)
+                continue;
+            console.log(`[GOOGLE CALENDAR] 🔍 Buscando em: ${cal.summary} (${cal.id})`);
+            let pageToken;
+            let calendarEvents = 0;
+            do {
+                const response = await calendar.events.list({
+                    calendarId: cal.id,
+                    timeMin: timeMin.toISOString(),
+                    timeMax: timeMax.toISOString(),
+                    singleEvents: true,
+                    orderBy: 'startTime',
+                    maxResults: 2500,
+                    pageToken
+                });
+                const pageEvents = response.data.items || [];
+                allEvents.push(...pageEvents);
+                calendarEvents += pageEvents.length;
+                pageToken = response.data.nextPageToken || undefined;
+            } while (pageToken);
+            console.log(`[GOOGLE CALENDAR] ✅ ${cal.summary}: ${calendarEvents} eventos`);
+        }
+        console.log(`[GOOGLE CALENDAR] Response da API Google:`, {
+            status: 200,
+            itemsCount: allEvents.length
+        });
+        const events = allEvents;
+        // 🔍 DEBUG COMPLETO: Todos os campos dos eventos Google
+        if (events.length > 0) {
+            console.log(`[GOOGLE CALENDAR] 🔍 PRIMEIRO EVENTO COMPLETO:`, JSON.stringify(events[0], null, 2));
+            console.log(`[GOOGLE CALENDAR] 📊 RESUMO DOS PRIMEIROS 3 EVENTOS:`);
+            events.slice(0, 3).forEach((event, index) => {
+                console.log(`[EVENTO ${index + 1}]`, {
+                    id: event.id,
+                    summary: event.summary || 'UNDEFINED',
+                    description: event.description || 'UNDEFINED',
+                    location: event.location || 'UNDEFINED',
+                    start: event.start,
+                    end: event.end,
+                    status: event.status,
+                    attendees: event.attendees?.length || 0,
+                    creator: event.creator?.email || 'UNDEFINED',
+                    organizer: event.organizer?.email || 'UNDEFINED'
+                });
+            });
+        }
+        else {
+            console.log(`[GOOGLE CALENDAR] ⚠️  Nenhum evento retornado pela API Google!`);
+        }
+        // Filtrar eventos válidos do Google Calendar
+        const validEvents = events.filter((event) => {
+            const isNotCancelled = event.status !== 'cancelled';
+            const hasDateTime = event.start && (event.start.dateTime || event.start.date);
+            // ✅ FILTRO CORRIGIDO: Aceitar todos os eventos com horário válido
+            // Eventos do Google Calendar são sempre válidos se têm data/hora
+            return isNotCancelled && hasDateTime;
+        });
+        console.log(`[GOOGLE CALENDAR] Eventos válidos após filtro: ${validEvents.length} de ${events.length}`);
+        // 🔄 FORMATAÇÃO COMPLETA dos eventos Google Calendar
+        const formattedEvents = validEvents.map((event) => {
+            const startTime = event.start?.dateTime || event.start?.date;
+            const endTime = event.end?.dateTime || event.end?.date;
+            // 🎯 TÍTULO REAL DO GOOGLE CALENDAR
+            let eventTitle = event.summary || null;
+            // Se não tem título, criar um descritivo
+            if (!eventTitle || eventTitle.trim() === '') {
+                const startDate = new Date(startTime);
+                const timeStr = startDate.toLocaleTimeString('pt-BR', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    timeZone: 'America/Sao_Paulo'
+                });
+                if (event.location && event.location.trim() !== '') {
+                    eventTitle = `📍 ${event.location.trim()}`;
+                }
+                else if (event.attendees && event.attendees.length > 0) {
+                    eventTitle = `👥 Reunião (${event.attendees.length} pessoas)`;
+                }
+                else if (event.description && event.description.trim() !== '') {
+                    const desc = event.description.trim().substring(0, 40);
+                    eventTitle = `📝 ${desc}`;
+                }
+                else {
+                    eventTitle = `📅 Compromisso ${timeStr}`;
+                }
+            }
+            // 📊 LOG completo do evento formatado
+            console.log(`[GOOGLE CALENDAR] ✅ Evento sincronizado:`, {
+                id: event.id,
+                title: eventTitle,
+                originalSummary: event.summary || 'VAZIO',
+                start: startTime,
+                end: endTime,
+                hasLocation: !!event.location,
+                hasDescription: !!event.description,
+                attendeesCount: event.attendees?.length || 0
+            });
+            // 🎯 OBJETO COMPLETO com TODOS os dados do Google Calendar
+            return {
+                id: event.id,
+                title: eventTitle,
+                description: event.description?.trim() || '',
+                start: startTime,
+                end: endTime,
+                location: event.location?.trim() || '',
+                attendees: event.attendees || [],
+                htmlLink: event.htmlLink || '',
+                creatorEmail: event.creator?.email || '',
+                organizerEmail: event.organizer?.email || '',
+                eventStatus: event.status || 'confirmed',
+                colorId: event.colorId || '',
+                createdAt: event.created || '',
+                updatedAt: event.updated || '',
+                status: event.status,
+                // Adicionar informações extras para debug
+                creator: event.creator?.email || '',
+                organizer: event.organizer?.email || ''
+            };
+        });
+        console.log(`[GOOGLE CALENDAR] Retornando ${formattedEvents.length} eventos formatados`);
+        res.json({ success: true, events: formattedEvents });
+    }
+    catch (error) {
+        // 🚨 LOGS DETALHADOS para diagnóstico completo
+        console.error(`[GOOGLE CALENDAR] ❌ ERRO DETALHADO para userId ${userId}:`, {
+            message: error.message,
+            statusCode: error?.response?.status,
+            statusText: error?.response?.statusText,
+            responseData: error?.response?.data,
+            errorCode: error?.code,
+            stack: error?.stack?.split('\n').slice(0, 3) // Primeiras linhas do stack
+        });
+        // Tratamento específico de erros do Google API
+        if (error.code === 401 || error.message?.includes('unauthorized') || error.message?.includes('invalid_grant')) {
+            console.log(`[GOOGLE CALENDAR] 🔑 Token expirado ou inválido para userId ${userId}`);
+            res.status(401).json({
+                success: false,
+                message: 'Token do Google expirado. Por favor, reconecte sua conta Google.',
+                error_code: 'TOKEN_EXPIRED'
+            });
+        }
+        else if (error.code === 403) {
+            console.log(`[GOOGLE CALENDAR] Acesso negado para userId ${userId}`);
+            res.status(403).json({
+                success: false,
+                message: 'Acesso negado ao Google Calendar. Verifique as permissões.',
+                error_code: 'ACCESS_DENIED'
+            });
+        }
+        else {
+            res.status(500).json({
+                success: false,
+                message: 'Falha ao buscar eventos do Google Calendar.',
+                error_code: 'UNKNOWN_ERROR',
+                details: error.message
+            });
+        }
+    }
+});
+// Endpoint para atualizar evento do Google Calendar
+app.put('/api/google/calendar/events/:eventId', async (req, res) => {
+    const { eventId } = req.params;
+    const { userId, eventData } = req.body;
+    try {
+        const userResponse = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+        const refreshToken = userResponse.google_refresh_token;
+        if (!refreshToken) {
+            return res.status(401).json({ success: false, message: 'Usuário não conectado ao Google Calendar.' });
+        }
+        oauth2Client.setCredentials({ refresh_token: refreshToken });
+        const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+        const event = {
+            summary: eventData.title,
+            description: eventData.description || eventData.details,
+            start: { dateTime: eventData.start, timeZone: 'America/Sao_Paulo' },
+            end: { dateTime: eventData.end, timeZone: 'America/Sao_Paulo' },
+            location: eventData.location || '',
+        };
+        const response = await calendar.events.update({
+            calendarId: 'primary',
+            eventId: eventId,
+            requestBody: event,
+        });
+        res.json({ success: true, message: 'Evento atualizado com sucesso!', data: response.data });
+    }
+    catch (error) {
+        console.error('Erro ao atualizar evento no Google Calendar:', error);
+        res.status(500).json({ success: false, message: 'Falha ao atualizar evento.' });
+    }
+});
+// Endpoint para deletar evento do Google Calendar
+app.delete('/api/google/calendar/events/:eventId', async (req, res) => {
+    const { eventId } = req.params;
+    const { userId } = req.query;
+    try {
+        const userResponse = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
+        const refreshToken = userResponse.google_refresh_token;
+        if (!refreshToken) {
+            return res.status(401).json({ success: false, message: 'Usuário não conectado ao Google Calendar.' });
+        }
+        oauth2Client.setCredentials({ refresh_token: refreshToken });
+        const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+        await calendar.events.delete({
+            calendarId: 'primary',
+            eventId: eventId,
+        });
+        res.json({ success: true, message: 'Evento excluído com sucesso!' });
+    }
+    catch (error) {
+        console.error('Erro ao excluir evento no Google Calendar:', error);
+        res.status(500).json({ success: false, message: 'Falha ao excluir evento.' });
+    }
+});
 // Endpoint público para listar modelos de prova teórica (sem autenticação)
 app.get('/api/public/theoretical-models', async (req, res) => {
     try {
         console.log('🔍 [Public] Buscando modelos na tabela:', PROVAS_TEORICAS_MODELOS_TABLE_ID);
-        const response = await baserowServerClient_js_1.baserowServer.get(PROVAS_TEORICAS_MODELOS_TABLE_ID);
+        const response = await baserowServer.get(PROVAS_TEORICAS_MODELOS_TABLE_ID);
         if (!response.results || !Array.isArray(response.results)) {
             console.log('⚠️ Nenhum resultado encontrado ou formato inválido');
             return res.json({ success: true, data: [] });
@@ -970,7 +1578,7 @@ app.post('/api/behavioral-test/generate', async (req, res) => {
     }
     try {
         console.log(`[Behavioral Test] Criando entrada na tabela ${TESTE_COMPORTAMENTAL_TABLE_ID}`);
-        const newTestEntry = await baserowServerClient_js_1.baserowServer.post(TESTE_COMPORTAMENTAL_TABLE_ID, {
+        const newTestEntry = await baserowServer.post(TESTE_COMPORTAMENTAL_TABLE_ID, {
             candidato: [parseInt(candidateId)],
             recrutador: [parseInt(recruiterId)],
             status: 'Pendente',
@@ -989,7 +1597,7 @@ app.patch('/api/behavioral-test/submit', async (req, res) => {
         return res.status(400).json({ error: 'ID do teste e respostas são obrigatórios.' });
     }
     try {
-        await baserowServerClient_js_1.baserowServer.patch(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId), {
+        await baserowServer.patch(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId), {
             data_de_resposta: new Date().toISOString(),
             respostas: JSON.stringify(responses),
             status: 'Processando',
@@ -998,7 +1606,7 @@ app.patch('/api/behavioral-test/submit', async (req, res) => {
         if (!TESTE_COMPORTAMENTAL_WEBHOOK_URL) {
             throw new Error('URL do webhook de teste comportamental não configurada no servidor.');
         }
-        const n8nResponse = await (0, node_fetch_1.default)(TESTE_COMPORTAMENTAL_WEBHOOK_URL, {
+        const n8nResponse = await fetch(TESTE_COMPORTAMENTAL_WEBHOOK_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ testId: parseInt(testId), responses }),
@@ -1033,12 +1641,12 @@ app.patch('/api/behavioral-test/submit', async (req, res) => {
             perfil_analista: perfilAnalisado.pontuacoes.analista,
             status: 'Concluído'
         };
-        const updatedTest = await baserowServerClient_js_1.baserowServer.patch(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId), dataToUpdate);
+        const updatedTest = await baserowServer.patch(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId), dataToUpdate);
         res.status(200).json({ success: true, data: updatedTest });
     }
     catch (error) {
         console.error(`[Teste ${testId}] Erro no fluxo síncrono do teste:`, error.message);
-        await baserowServerClient_js_1.baserowServer.patch(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId), { status: 'Erro' }).catch(err => console.error("Falha ao atualizar status para Erro:", err));
+        await baserowServer.patch(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId), { status: 'Erro' }).catch(err => console.error("Falha ao atualizar status para Erro:", err));
         res.status(500).json({ error: error.message || 'Erro ao processar o teste.' });
     }
 });
@@ -1048,7 +1656,7 @@ app.get('/api/public/behavioral-test/:testId', async (req, res) => {
         return res.status(400).json({ error: 'ID do teste é obrigatório.' });
     }
     try {
-        const result = await baserowServerClient_js_1.baserowServer.getRow(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId));
+        const result = await baserowServer.getRow(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId));
         if (!result) {
             return res.status(404).json({ error: 'Teste não encontrado.' });
         }
@@ -1064,7 +1672,7 @@ app.get('/api/behavioral-test/results/recruiter/:recruiterId', async (req, res) 
         return res.status(400).json({ error: 'ID do recrutador é obrigatório.' });
     }
     try {
-        const { results } = await baserowServerClient_js_1.baserowServer.get(TESTE_COMPORTAMENTAL_TABLE_ID, `?filter__recrutador__link_row_has=${recruiterId}&order_by=-data_de_resposta`);
+        const { results } = await baserowServer.get(TESTE_COMPORTAMENTAL_TABLE_ID, `?filter__recrutador__link_row_has=${recruiterId}&order_by=-data_de_resposta`);
         res.json({ success: true, data: results || [] });
     }
     catch (error) {
@@ -1078,7 +1686,7 @@ app.get('/api/behavioral-test/result/:testId', async (req, res) => {
         return res.status(400).json({ error: 'ID do teste é obrigatório.' });
     }
     try {
-        const result = await baserowServerClient_js_1.baserowServer.getRow(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId));
+        const result = await baserowServer.getRow(TESTE_COMPORTAMENTAL_TABLE_ID, parseInt(testId));
         if (!result) {
             return res.status(404).json({ error: 'Resultado do teste não encontrado.' });
         }
@@ -1101,12 +1709,22 @@ app.get('/api/public/theoretical-test/:testId', async (req, res) => {
     try {
         console.log('[Public Theoretical Test] Buscando prova:', testId);
         // Buscar a prova aplicada
-        const appliedTest = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+        const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
         if (!appliedTest) {
             return res.status(404).json({ error: 'Prova não encontrada.' });
         }
-        // Verificar se a prova ainda está ativa (false = finalizada)
-        if (appliedTest.status === false) {
+        console.log(`[Public Theoretical Test] Status da prova:`, appliedTest.status);
+        console.log(`[Public Theoretical Test] Tipo do status:`, typeof appliedTest.status);
+        // Verificar se a prova ainda está ativa (Concluído = finalizada)
+        let isCompleted = false;
+        if (typeof appliedTest.status === 'string' && appliedTest.status === 'Concluído') {
+            isCompleted = true;
+        }
+        else if (appliedTest.status && typeof appliedTest.status === 'object' && appliedTest.status.value === 'Concluído') {
+            isCompleted = true;
+        }
+        console.log(`[Public Theoretical Test] Prova já completada:`, isCompleted);
+        if (isCompleted) {
             return res.status(400).json({
                 error: 'Esta prova já foi respondida anteriormente e não pode ser feita novamente.',
                 already_completed: true
@@ -1116,7 +1734,7 @@ app.get('/api/public/theoretical-test/:testId', async (req, res) => {
         let candidateName = 'Candidato';
         if (appliedTest.candidato && appliedTest.candidato.length > 0) {
             try {
-                const candidate = await baserowServerClient_js_1.baserowServer.getRow(CANDIDATOS_TABLE_ID, appliedTest.candidato[0].id);
+                const candidate = await baserowServer.getRow(CANDIDATOS_TABLE_ID, appliedTest.candidato[0].id);
                 if (candidate) {
                     candidateName = candidate.nome;
                 }
@@ -1129,7 +1747,7 @@ app.get('/api/public/theoretical-test/:testId', async (req, res) => {
         let modelData = null;
         if (appliedTest.modelo_da_prova && appliedTest.modelo_da_prova.length > 0) {
             try {
-                const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, appliedTest.modelo_da_prova[0].id);
+                const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, appliedTest.modelo_da_prova[0].id);
                 if (model) {
                     modelData = {
                         id: model.id,
@@ -1184,7 +1802,7 @@ app.patch('/api/theoretical-test/submit', async (req, res) => {
         console.log(`[Theoretical Test SUBMIT] Iniciando busca da prova ${testId}`);
         console.log(`[Theoretical Test SUBMIT] Table ID: ${PROVAS_TEORICAS_APLICADAS_TABLE_ID}`);
         // Buscar a prova
-        const appliedTest = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+        const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
         console.log(`[Theoretical Test SUBMIT] Resultado da busca:`, appliedTest ? 'ENCONTRADA' : 'NÃO ENCONTRADA');
         if (!appliedTest) {
             console.log(`[Theoretical Test SUBMIT] ERRO: Prova ${testId} não encontrada no banco`);
@@ -1195,8 +1813,8 @@ app.patch('/api/theoretical-test/submit', async (req, res) => {
             status: appliedTest.status,
             modelo_da_prova: appliedTest.modelo_da_prova
         });
-        // Verificar se ainda está ativa (false = finalizada)
-        if (appliedTest.status === false) {
+        // Verificar se ainda está ativa (Concluído = finalizada)
+        if (appliedTest.status && (appliedTest.status.value === 'Concluído' || appliedTest.status === 'Concluído')) {
             return res.status(400).json({
                 error: 'Esta prova já foi respondida anteriormente e não pode ser feita novamente.',
                 already_completed: true
@@ -1207,7 +1825,7 @@ app.patch('/api/theoretical-test/submit', async (req, res) => {
         if (appliedTest.modelo_da_prova && appliedTest.modelo_da_prova.length > 0) {
             try {
                 console.log(`[Theoretical Test] Buscando modelo com ID:`, appliedTest.modelo_da_prova[0].id);
-                const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, appliedTest.modelo_da_prova[0].id);
+                const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, appliedTest.modelo_da_prova[0].id);
                 console.log(`[Theoretical Test] Modelo encontrado:`, !!model);
                 if (model && model.perguntas) {
                     console.log(`[Theoretical Test] Tipo de perguntas:`, typeof model.perguntas);
@@ -1236,16 +1854,18 @@ app.patch('/api/theoretical-test/submit', async (req, res) => {
         console.log(`[Theoretical Test SUBMIT] - Responses JSON:`, JSON.stringify(responses));
         // Atualizar a prova com as respostas e pontuação
         console.log(`[Theoretical Test SUBMIT] Iniciando atualização da prova ${testId}`);
+        console.log(`[Theoretical Test SUBMIT] Status atual da prova:`, appliedTest.status);
+        // Agora atualizando para "Concluído" conforme opções do Baserow
         const updateData = {
             data_de_resposta: new Date().toISOString(),
             respostas_candidato: JSON.stringify(responses),
             pontuacao_total: pontuacaoTotal,
-            status: 'Finalizada', // Single Select: usar string em vez de boolean
+            status: 'Concluído', // Usar valor correto do Baserow
         };
         console.log(`[Theoretical Test SUBMIT] Dados de atualização:`, updateData);
         let updateResult;
         try {
-            updateResult = await baserowServerClient_js_1.baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId), updateData);
+            updateResult = await baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId), updateData);
             console.log(`[Theoretical Test SUBMIT] Resultado da atualização:`, updateResult ? 'SUCESSO' : 'FALHA');
             console.log(`[Theoretical Test SUBMIT] Prova ${testId} submetida com sucesso`);
         }
@@ -1260,7 +1880,7 @@ app.patch('/api/theoretical-test/submit', async (req, res) => {
         // Disparar webhook para N8N (se configurado)
         if (N8N_THEORETICAL_WEBHOOK_URL) {
             try {
-                await (0, node_fetch_1.default)(N8N_THEORETICAL_WEBHOOK_URL, {
+                await fetch(N8N_THEORETICAL_WEBHOOK_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1300,12 +1920,12 @@ app.delete('/api/theoretical-test/cancel/:testId', async (req, res) => {
     try {
         console.log(`[Theoretical Test] Cancelando prova ${testId}`);
         // Buscar a prova para verificar se existe
-        const appliedTest = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+        const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
         if (!appliedTest) {
             return res.status(404).json({ error: 'Prova não encontrada.' });
         }
         // Marcar como cancelada (status = false)
-        await baserowServerClient_js_1.baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId), {
+        await baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId), {
             status: false,
             data_de_resposta: new Date().toISOString()
         });
@@ -1328,14 +1948,14 @@ app.get('/api/theoretical-test/check/:candidateId', async (req, res) => {
     }
     try {
         console.log(`[Theoretical Test] Verificando prova existente para candidato ${candidateId}`);
-        const { results: existingTests } = await baserowServerClient_js_1.baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}&filter__status=true`);
+        const { results: existingTests } = await baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}&filter__status=true`);
         if (existingTests && existingTests.length > 0) {
             const existingTest = existingTests[0];
             // Buscar nome do modelo
             let modelName = 'Modelo não encontrado';
             if (existingTest.modelo_da_prova && existingTest.modelo_da_prova.length > 0) {
                 try {
-                    const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, existingTest.modelo_da_prova[0].id);
+                    const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, existingTest.modelo_da_prova[0].id);
                     if (model) {
                         modelName = model.titulo || model.nome;
                     }
@@ -1377,7 +1997,7 @@ app.get('/api/theoretical-models', async (req, res) => {
         console.log('🔍 Buscando modelos para usuário:', userId);
         console.log('🔍 Buscando modelos na tabela:', PROVAS_TEORICAS_MODELOS_TABLE_ID);
         // Buscar todos os modelos e filtrar no backend
-        const response = await baserowServerClient_js_1.baserowServer.get(PROVAS_TEORICAS_MODELOS_TABLE_ID);
+        const response = await baserowServer.get(PROVAS_TEORICAS_MODELOS_TABLE_ID);
         console.log('📊 Resposta do Baserow:', JSON.stringify(response, null, 2));
         if (!response.results || !Array.isArray(response.results)) {
             console.log('⚠️ Nenhum resultado encontrado ou formato inválido');
@@ -1435,7 +2055,7 @@ app.get('/api/theoretical-models', async (req, res) => {
 app.get('/api/theoretical-models/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id));
+        const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id));
         if (!model) {
             return res.status(404).json({ error: 'Modelo de prova não encontrado.' });
         }
@@ -1487,7 +2107,7 @@ app.post('/api/theoretical-models', async (req, res) => {
         // Processar questões - gerar IDs se necessário
         const questoesComId = questoes.map((questao) => ({
             ...questao,
-            id: questao.id || crypto_1.default.randomUUID()
+            id: questao.id || crypto.randomUUID()
         }));
         // Pegar o ID do usuário dos headers ou query params
         const userId = req.headers['x-user-id'] || req.body.userId || '1'; // Default para usuário 1
@@ -1502,7 +2122,7 @@ app.post('/api/theoretical-models', async (req, res) => {
         };
         console.log('📤 Criando modelo no Baserow:', newModelData);
         console.log('🏗️ Table ID usado:', PROVAS_TEORICAS_MODELOS_TABLE_ID);
-        const createdModel = await baserowServerClient_js_1.baserowServer.post(PROVAS_TEORICAS_MODELOS_TABLE_ID, newModelData);
+        const createdModel = await baserowServer.post(PROVAS_TEORICAS_MODELOS_TABLE_ID, newModelData);
         console.log('✅ Modelo criado com sucesso - ID:', createdModel.id);
         console.log('🔍 Dados retornados do Baserow:', JSON.stringify(createdModel, null, 2));
         // Tratamento seguro do campo questões usando nome correto do Baserow
@@ -1555,7 +2175,7 @@ app.put('/api/theoretical-models/:id', async (req, res) => {
     try {
         // Verificar se o modelo existe
         console.log(`🔍 Verificando se modelo ${id} existe...`);
-        const existingModel = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id));
+        const existingModel = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id));
         if (!existingModel) {
             console.log(`❌ Modelo ${id} não encontrado`);
             return res.status(404).json({ error: 'Modelo de prova não encontrado.' });
@@ -1593,13 +2213,13 @@ app.put('/api/theoretical-models/:id', async (req, res) => {
             // Manter IDs existentes ou gerar novos
             const questoesComId = questoes.map(questao => ({
                 ...questao,
-                id: questao.id || crypto_1.default.randomUUID()
+                id: questao.id || crypto.randomUUID()
             }));
             updateData.perguntas = JSON.stringify(questoesComId); // Campo é 'perguntas' no Baserow
             console.log('✅ Questões validadas e processadas');
         }
         console.log('📤 Dados de atualização para Baserow:', JSON.stringify(updateData, null, 2));
-        const updatedModel = await baserowServerClient_js_1.baserowServer.patch(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id), updateData);
+        const updatedModel = await baserowServer.patch(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id), updateData);
         const formattedModel = {
             id: updatedModel.id,
             nome: updatedModel.titulo, // Campo é 'titulo' no Baserow
@@ -1636,7 +2256,7 @@ app.delete('/api/theoretical-models/:id', async (req, res) => {
     try {
         // Verificar se o modelo existe
         console.log(`🔍 Verificando se modelo ${id} existe...`);
-        const existingModel = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id));
+        const existingModel = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id));
         if (!existingModel) {
             console.log(`❌ Modelo ${id} não encontrado`);
             return res.status(404).json({ error: 'Modelo de prova não encontrado.' });
@@ -1652,7 +2272,7 @@ app.delete('/api/theoretical-models/:id', async (req, res) => {
         console.log(`✅ Modelo ${id} encontrado e usuário autorizado:`, existingModel.titulo);
         // SEMPRE deletar fisicamente - removendo a verificação de provas aplicadas
         console.log(`🗑️ Deletando modelo ${id} FISICAMENTE do Baserow...`);
-        await baserowServerClient_js_1.baserowServer.delete(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id));
+        await baserowServer.delete(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(id));
         console.log(`✅ Modelo ${id} deletado com sucesso do Baserow`);
         res.json({
             success: true,
@@ -1688,7 +2308,7 @@ app.post('/api/theoretical-test/generate', async (req, res) => {
     try {
         console.log('[Theoretical Test] 1. Verificando candidato...');
         // Verificar se o candidato existe
-        const candidate = await baserowServerClient_js_1.baserowServer.getRow(CANDIDATOS_TABLE_ID, parseInt(finalCandidateId));
+        const candidate = await baserowServer.getRow(CANDIDATOS_TABLE_ID, parseInt(finalCandidateId));
         if (!candidate) {
             console.log('[Theoretical Test] ❌ Candidato não encontrado:', finalCandidateId);
             return res.status(404).json({ error: 'Candidato não encontrado.' });
@@ -1696,7 +2316,7 @@ app.post('/api/theoretical-test/generate', async (req, res) => {
         console.log('[Theoretical Test] ✅ Candidato encontrado:', candidate.nome);
         console.log('[Theoretical Test] 2. Verificando modelo...');
         // Verificar se o modelo existe e está ativo
-        const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(finalModeloId));
+        const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(finalModeloId));
         if (!model) {
             console.log('[Theoretical Test] ❌ Modelo não encontrado:', finalModeloId);
             return res.status(404).json({ error: 'Modelo de prova não encontrado.' });
@@ -1731,12 +2351,12 @@ app.post('/api/theoretical-test/generate', async (req, res) => {
             console.log('[Theoretical Test] Adicionado recrutador:', recruiterId);
         }
         console.log('[Theoretical Test] Dados para criar:', JSON.stringify(appliedTestData, null, 2));
-        const createdTest = await baserowServerClient_js_1.baserowServer.post(PROVAS_TEORICAS_APLICADAS_TABLE_ID, appliedTestData);
+        const createdTest = await baserowServer.post(PROVAS_TEORICAS_APLICADAS_TABLE_ID, appliedTestData);
         console.log('[Theoretical Test] ✅ Prova criada com ID:', createdTest.id);
         // Enviar notificação via N8N (se configurado)
         if (N8N_THEORETICAL_WEBHOOK_URL) {
             try {
-                await (0, node_fetch_1.default)(N8N_THEORETICAL_WEBHOOK_URL, {
+                await fetch(N8N_THEORETICAL_WEBHOOK_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1786,13 +2406,13 @@ app.post('/api/theoretical-test/generate', async (req, res) => {
 app.get('/api/theoretical-test/:candidateId', async (req, res) => {
     const { candidateId } = req.params;
     try {
-        const { results } = await baserowServerClient_js_1.baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}`);
+        const { results } = await baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}`);
         if (!results || results.length === 0) {
             return res.status(404).json({ error: 'Nenhuma prova em andamento encontrada para este candidato.' });
         }
         const appliedTest = results[0];
-        // Verificar se a prova já foi respondida (false = finalizada)
-        if (appliedTest.status === false) {
+        // Verificar se a prova já foi respondida (Concluído = finalizada)
+        if (appliedTest.status && (appliedTest.status.value === 'Concluído' || appliedTest.status === 'Concluído')) {
             return res.status(400).json({
                 error: 'Esta prova já foi respondida e não pode ser feita novamente.',
                 already_completed: true
@@ -1801,7 +2421,7 @@ app.get('/api/theoretical-test/:candidateId', async (req, res) => {
         // Buscar o modelo da prova para obter as questões
         // appliedTest.modelo_da_prova é um array de links, pegar o primeiro ID
         const modeloId = appliedTest.modelo_da_prova?.[0] || appliedTest.modelo_da_prova;
-        const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(modeloId));
+        const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(modeloId));
         if (!model) {
             return res.status(404).json({ error: 'Modelo de prova não encontrado.' });
         }
@@ -1846,15 +2466,15 @@ app.put('/api/theoretical-test/:testId/submit', async (req, res) => {
     }
     try {
         // Buscar a prova aplicada
-        const appliedTest = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+        const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
         if (!appliedTest) {
             return res.status(404).json({ error: 'Prova não encontrada.' });
         }
-        if (appliedTest.status === false) {
+        if (appliedTest.status && (appliedTest.status.value === 'Concluído' || appliedTest.status === 'Concluído')) {
             return res.status(400).json({ error: 'Esta prova não está mais em andamento.' });
         }
         // Buscar o modelo para calcular pontuação
-        const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(appliedTest.modelo_prova_id));
+        const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(appliedTest.modelo_prova_id));
         if (!model) {
             return res.status(404).json({ error: 'Modelo de prova não encontrado.' });
         }
@@ -1890,7 +2510,7 @@ app.put('/api/theoretical-test/:testId/submit', async (req, res) => {
             status: 'Concluído', // Status correto: Concluído quando finalizada
             data_de_resposta: new Date().toISOString() // Campo correto para data de finalização
         };
-        const updatedTest = await baserowServerClient_js_1.baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId), updateData);
+        const updatedTest = await baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId), updateData);
         // Enviar notificação de prova finalizada via N8N
         if (N8N_THEORETICAL_WEBHOOK_URL) {
             try {
@@ -1898,8 +2518,8 @@ app.put('/api/theoretical-test/:testId/submit', async (req, res) => {
                 const candidatoId = Array.isArray(appliedTest.candidato)
                     ? appliedTest.candidato[0]
                     : appliedTest.candidato;
-                const candidate = await baserowServerClient_js_1.baserowServer.getRow(CANDIDATOS_TABLE_ID, parseInt(candidatoId));
-                await (0, node_fetch_1.default)(N8N_THEORETICAL_WEBHOOK_URL, {
+                const candidate = await baserowServer.getRow(CANDIDATOS_TABLE_ID, parseInt(candidatoId));
+                await fetch(N8N_THEORETICAL_WEBHOOK_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1937,7 +2557,7 @@ app.get('/api/theoretical-test/results/:candidateId', async (req, res) => {
     const { candidateId } = req.params;
     try {
         // Buscar provas do candidato usando o campo de Link correto
-        const { results } = await baserowServerClient_js_1.baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}&order_by=-data_de_resposta`);
+        const { results } = await baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}&order_by=-data_de_resposta`);
         if (!results || results.length === 0) {
             return res.json({ success: true, data: [] });
         }
@@ -1946,7 +2566,7 @@ app.get('/api/theoretical-test/results/:candidateId', async (req, res) => {
             let modelName = 'Modelo não encontrado';
             if (test.modelo_da_prova && test.modelo_da_prova.length > 0) {
                 try {
-                    const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, test.modelo_da_prova[0].id);
+                    const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, test.modelo_da_prova[0].id);
                     modelName = model?.titulo || 'Modelo não encontrado';
                 }
                 catch (error) {
@@ -1973,7 +2593,7 @@ app.delete('/api/theoretical-test/:candidateId/cancel', async (req, res) => {
     try {
         const { candidateId } = req.params;
         // Buscar prova em andamento
-        const { results: existingTests } = await baserowServerClient_js_1.baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}`);
+        const { results: existingTests } = await baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}`);
         if (!existingTests || existingTests.length === 0) {
             return res.status(404).json({
                 error: 'Nenhuma prova em andamento encontrada para este candidato.'
@@ -1981,7 +2601,7 @@ app.delete('/api/theoretical-test/:candidateId/cancel', async (req, res) => {
         }
         const testToCancel = existingTests[0];
         // Atualizar status para cancelada
-        await baserowServerClient_js_1.baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, testToCancel.id, {
+        await baserowServer.patch(PROVAS_TEORICAS_APLICADAS_TABLE_ID, testToCancel.id, {
             status: 'Processando', // Usar valor válido do Baserow - será testado
             data_de_resposta: new Date().toISOString(), // Data de cancelamento
             observacoes: 'Prova cancelada para permitir nova geração'
@@ -2005,12 +2625,12 @@ app.delete('/api/theoretical-test/delete/:testId', async (req, res) => {
     try {
         console.log(`[Theoretical Test] Excluindo prova ${testId} permanentemente`);
         // Verificar se a prova existe antes de excluir
-        const appliedTest = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+        const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
         if (!appliedTest) {
             return res.status(404).json({ error: 'Prova não encontrada.' });
         }
         // Excluir a prova permanentemente
-        await baserowServerClient_js_1.baserowServer.delete(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+        await baserowServer.delete(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
         console.log(`[Theoretical Test] Prova ${testId} excluída com sucesso`);
         res.json({
             success: true,
@@ -2025,13 +2645,20 @@ app.delete('/api/theoretical-test/delete/:testId', async (req, res) => {
 // GET /api/theoretical-test/review/:testId - Buscar gabarito e respostas da prova para revisão
 app.get('/api/theoretical-test/review/:testId', async (req, res) => {
     const { testId } = req.params;
+    console.log(`[Theoretical Test REVIEW] === INICIO DA REQUISIÇÃO ===`);
+    console.log(`[Theoretical Test REVIEW] testId recebido: "${testId}"`);
+    console.log(`[Theoretical Test REVIEW] typeof testId: ${typeof testId}`);
     if (!testId) {
+        console.log(`[Theoretical Test REVIEW] ERRO: testId vazio`);
         return res.status(400).json({ error: 'ID da prova é obrigatório.' });
     }
     try {
-        console.log(`[Theoretical Test] Buscando gabarito da prova ${testId}`);
+        console.log(`[Theoretical Test REVIEW] Buscando gabarito da prova ${testId}`);
+        console.log(`[Theoretical Test REVIEW] Table ID: ${PROVAS_TEORICAS_APLICADAS_TABLE_ID}`);
+        console.log(`[Theoretical Test REVIEW] parseInt(testId): ${parseInt(testId)}`);
         // Buscar a prova aplicada
-        const appliedTest = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+        const appliedTest = await baserowServer.getRow(PROVAS_TEORICAS_APLICADAS_TABLE_ID, parseInt(testId));
+        console.log(`[Theoretical Test REVIEW] Prova encontrada:`, !!appliedTest);
         if (!appliedTest) {
             return res.status(404).json({ error: 'Prova não encontrada.' });
         }
@@ -2039,7 +2666,7 @@ app.get('/api/theoretical-test/review/:testId', async (req, res) => {
         let candidateName = 'Candidato não encontrado';
         if (appliedTest.candidato && appliedTest.candidato.length > 0) {
             try {
-                const candidate = await baserowServerClient_js_1.baserowServer.getRow(CANDIDATOS_TABLE_ID, appliedTest.candidato[0].id);
+                const candidate = await baserowServer.getRow(CANDIDATOS_TABLE_ID, appliedTest.candidato[0].id);
                 if (candidate) {
                     candidateName = candidate.nome;
                 }
@@ -2052,7 +2679,7 @@ app.get('/api/theoretical-test/review/:testId', async (req, res) => {
         let modelData = null;
         if (appliedTest.modelo_da_prova && appliedTest.modelo_da_prova.length > 0) {
             try {
-                const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, appliedTest.modelo_da_prova[0].id);
+                const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, appliedTest.modelo_da_prova[0].id);
                 if (model) {
                     modelData = {
                         id: model.id,
@@ -2081,17 +2708,38 @@ app.get('/api/theoretical-test/review/:testId', async (req, res) => {
         catch (error) {
             console.error('[Review] Erro ao parsear respostas:', error);
         }
+        // Calcular estatísticas da prova
+        let acertos = 0;
+        const totalQuestoes = modelData.questoes.length;
+        // Contar acertos para questões objetivas
+        modelData.questoes.forEach((questao) => {
+            if (questao.tipo === 'verdadeiro_falso' || questao.tipo === 'multipla_escolha') {
+                const respostaCandidato = respostasCandidato[questao.id];
+                if (respostaCandidato === questao.resposta_correta) {
+                    acertos++;
+                }
+            }
+        });
+        console.log(`[Review] Estatísticas: ${acertos}/${totalQuestoes} acertos`);
         res.json({
             success: true,
             data: {
-                testId: appliedTest.id,
-                candidato_nome: candidateName,
-                modelo_prova: modelData,
-                respostas_candidato: respostasCandidato,
-                pontuacao_total: appliedTest.pontuacao_total || 0,
-                status: appliedTest.status,
-                data_resposta: appliedTest.data_de_resposta,
-                data_geracao: appliedTest.data_de_geracao
+                test: {
+                    testId: appliedTest.id,
+                    candidato_nome: candidateName,
+                    modelo_nome: modelData.titulo, // Usar titulo como modelo_nome
+                    pontuacao_total: appliedTest.pontuacao_total || 0,
+                    acertos: acertos,
+                    total_questoes: totalQuestoes,
+                    status: appliedTest.status,
+                    data_finalizacao: appliedTest.data_de_resposta,
+                    data_geracao: appliedTest.data_de_geracao
+                },
+                questions: modelData.questoes,
+                candidateAnswers: Object.entries(respostasCandidato).map(([questionId, answer]) => ({
+                    question_id: questionId,
+                    answer: answer
+                }))
             }
         });
     }
@@ -2105,7 +2753,7 @@ app.get('/api/theoretical-test-results/:candidateId', async (req, res) => {
     try {
         const { candidateId } = req.params;
         // Buscar todas as provas do candidato
-        const response = await baserowServerClient_js_1.baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}`);
+        const response = await baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}`);
         if (!response.results || !Array.isArray(response.results)) {
             return res.json({ success: true, data: [] });
         }
@@ -2116,7 +2764,7 @@ app.get('/api/theoretical-test-results/:candidateId', async (req, res) => {
                 const modeloId = Array.isArray(test.modelo_da_prova)
                     ? test.modelo_da_prova[0]
                     : test.modelo_da_prova;
-                const model = await baserowServerClient_js_1.baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, modeloId);
+                const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, modeloId);
                 return {
                     id: test.id,
                     modelo_prova: {

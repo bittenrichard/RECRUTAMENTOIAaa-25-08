@@ -79,19 +79,28 @@ const MonthView: React.FC<MonthViewProps> = ({ currentDate, events, onDayClick, 
             {/* Container para os pontos de evento */}
             {isCurrentMonthDay && dayEvents.length > 0 && (
               <div className="calendar-event-dot-container">
-                {dayEvents.slice(0, MAX_VISIBLE_DOTS).map((event, eventIdx) => (
-                  <div
-                    key={event.resource.id || eventIdx}
-                    className="calendar-event-dot"
-                    // Cor fixa rosa/magenta.
-                    style={{ backgroundColor: '#db2777' }}
-                    title={`${event.title} (${format(event.start, 'HH:mm')} - ${format(event.end, 'HH:mm')})`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectEvent(event);
-                    }}
-                  />
-                ))}
+                {dayEvents.slice(0, MAX_VISIBLE_DOTS).map((event, eventIdx) => {
+                  // Verificar se é evento do Google Calendar
+                  const isGoogleEvent = 'isGoogleEvent' in event.resource && event.resource.isGoogleEvent;
+                  const eventColor = isGoogleEvent ? '#4285f4' : '#db2777'; // Azul Google vs Rosa sistema
+                  const eventIcon = isGoogleEvent ? '📅' : '•';
+                  
+                  return (
+                    <div
+                      key={event.resource.id || eventIdx}
+                      className="calendar-event-dot"
+                      style={{ 
+                        backgroundColor: eventColor,
+                        position: 'relative'
+                      }}
+                      title={`${eventIcon} ${event.title} (${format(event.start, 'HH:mm')} - ${format(event.end, 'HH:mm')})${isGoogleEvent ? ' - Google Calendar' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectEvent(event);
+                      }}
+                    />
+                  );
+                })}
                 {dayEvents.length > MAX_VISIBLE_DOTS && (
                   <span
                     className="calendar-more-events"

@@ -1,18 +1,21 @@
 // Local: src/features/agenda/components/AgendaPage.tsx
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Loader2, ChevronRight, ChevronLeft, Calendar as CalendarIcon } from 'lucide-react';
-import { format, addMonths, subMonths, addWeeks, subWeeks, addDays, subDays, startOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isToday, isSameDay } from 'date-fns';
+import { Loader2, ChevronRight, ChevronLeft } from 'lucide-react';
+import { format, addMonths, subMonths, addWeeks, subWeeks, addDays, subDays, startOfWeek, endOfWeek } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { CalendarEvent, ScheduleEvent } from '../types';
-import EventDetailModal from './EventDetailModal';
+
+import EditEventModal from './EditEventModal';
 import DailyEventsSidebar from './DailyEventsSidebar'; 
 import { useAuth } from '../../../features/auth/hooks/useAuth';
+import { useGoogleAuth } from '../../../shared/hooks/useGoogleAuth';
 import MonthView from './MonthView'; 
 import WeekView from './WeekView'; 
-import DayView from './DayView';   
+import DayView from './DayView';
+import { GoogleCalendarService, GoogleCalendarEvent, EventFormData } from '../../../shared/services/googleCalendarService';   
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
 
 type CustomView = 'month' | 'week' | 'day';
 
@@ -28,10 +31,13 @@ const generateColorForId = (id: number) => {
 
 const AgendaPage: React.FC = () => {
   const { profile } = useAuth();
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const { isGoogleConnected } = useGoogleAuth();
+  const [googleEvents, setGoogleEvents] = useState<GoogleCalendarEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [selectedGoogleEvent, setSelectedGoogleEvent] = useState<GoogleCalendarEvent | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDayForSidebar, setSelectedDayForSidebar] = useState(new Date());
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -39,66 +45,186 @@ const AgendaPage: React.FC = () => {
 
   const vagaColorMap = useMemo(() => {
     const map = new Map<number, string>();
-    events.forEach(event => {
-      const vagaId = event.resource.Vaga?.[0]?.id;
-      if (vagaId && !map.has(vagaId)) {
-        map.set(vagaId, generateColorForId(vagaId));
+    // Gerar cores baseado nos eventos do Google Calendar que têm metadados de vaga
+    googleEvents.forEach(event => {
+      if (event.description) {
+        try {
+          const metadata = JSON.parse(event.description);
+          if (metadata.vagaId && !map.has(metadata.vagaId)) {
+            map.set(metadata.vagaId, generateColorForId(metadata.vagaId));
+          }
+        } catch {
+          // Ignorar se não for JSON válido
+        }
       }
     });
     return map;
-  }, [events]);
+  }, [googleEvents]);
 
-  const dailyEvents = useMemo(() => {
-    return events.filter(event => 
-      isSameDay(event.start, selectedDayForSidebar)
-    ).sort((a, b) => a.start.getTime() - b.start.getTime());
-  }, [events, selectedDayForSidebar]);
+  // Função simples para gerar hash de string
+  const stringToHash = useCallback((str: string): number => {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash);
+  }, []);
 
-  const fetchSchedules = useCallback(async () => {
+  // Função para converter GoogleCalendarEvent em CalendarEvent
+  const convertGoogleEventToCalendarEvent = useCallback((googleEvent: GoogleCalendarEvent): CalendarEvent => {
+    console.log('[CONVERT DEBUG] Convertendo evento:', {
+      id: googleEvent.id,
+      title: googleEvent.title,
+      start: googleEvent.start,
+      startType: typeof googleEvent.start,
+      end: googleEvent.end,
+      endType: typeof googleEvent.end
+    });
+    
+    const startDate = new Date(googleEvent.start);
+    const endDate = new Date(googleEvent.end);
+    
+    console.log('[CONVERT DEBUG] Datas convertidas:', {
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      startValid: !isNaN(startDate.getTime()),
+      endValid: !isNaN(endDate.getTime())
+    });
+    
+    return {
+      title: googleEvent.title,
+      start: startDate,
+      end: endDate,
+      resource: {
+        id: -stringToHash(googleEvent.id), // ID negativo para distinguir de eventos do sistema
+        Título: googleEvent.title,
+        Início: googleEvent.start,
+        Fim: googleEvent.end,
+        Detalhes: googleEvent.description || '',
+        Candidato: [],
+        Vaga: [],
+        // Adicionar metadados para identificar como evento do Google
+        isGoogleEvent: true,
+        googleEventId: googleEvent.id,
+        location: googleEvent.location,
+        htmlLink: googleEvent.htmlLink
+      } as ScheduleEvent & { isGoogleEvent: true; googleEventId: string; location?: string; htmlLink: string }
+    };
+  }, [stringToHash]);
+
+  // Converter eventos do Google Calendar para formato da agenda
+  const allEvents = useMemo(() => {
+    const convertedGoogleEvents = googleEvents.map(convertGoogleEventToCalendarEvent);
+    console.log('[AGENDA DEBUG] Eventos do Google Calendar:', googleEvents.length);
+    console.log('[AGENDA DEBUG] Eventos convertidos:', convertedGoogleEvents.length);
+    
+    return convertedGoogleEvents;
+  }, [googleEvents, convertGoogleEventToCalendarEvent]);
+
+
+
+
+  const fetchGoogleCalendarEvents = useCallback(async () => {
+    console.log('[DEBUG] fetchGoogleCalendarEvents called:', {
+      profileId: profile?.id,
+      isGoogleConnected,
+      hasProfile: !!profile
+    });
+    
     if (!profile?.id) {
-      setIsLoading(false);
-      setError("Usuário não logado. Não foi possível carregar agendamentos.");
+      console.log('[DEBUG] Sem profile.id, cancelando fetch');
+      return;
+    }
+    
+    if (!isGoogleConnected) {
+      console.log('[DEBUG] Google não conectado, cancelando fetch');
       return;
     }
 
+    setIsSyncing(true);
+    try {
+      console.log('[DEBUG] Chamando GoogleCalendarService.listEvents...');
+      const events = await GoogleCalendarService.listEvents(profile.id);
+      console.log('[DEBUG] Eventos recebidos:', events);
+      setGoogleEvents(events);
+    } catch (error) {
+      console.error('[ERROR] Erro ao buscar eventos do Google Calendar:', error);
+      
+      // Se for erro de token expirado, mostrar mensagem específica
+      if (error instanceof Error && error.message.includes('Token do Google expirado')) {
+        alert('⚠️ Token do Google Calendar expirado!\n\nPor favor, vá em Configurações e reconecte sua conta Google para sincronizar os eventos.');
+      } else if (error instanceof Error && error.message.includes('não conectado')) {
+        alert('📅 Google Calendar não conectado!\n\nPara sincronizar eventos, conecte sua conta Google clicando no botão "Conectar Google" ou em Configurações.');
+      } else {
+        console.error('Erro na sincronização:', error);
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [profile, isGoogleConnected]);
+
+  const handleUpdateGoogleEvent = useCallback(async (eventData: Partial<GoogleCalendarEvent>) => {
+    if (!profile?.id || !selectedGoogleEvent) return;
+
+    const formattedData: EventFormData = {
+      title: eventData.title || selectedGoogleEvent.title,
+      description: eventData.description || selectedGoogleEvent.description,
+      start: eventData.start || selectedGoogleEvent.start,
+      end: eventData.end || selectedGoogleEvent.end,
+      location: eventData.location || selectedGoogleEvent.location,
+    };
+
+    try {
+      await GoogleCalendarService.updateEvent(selectedGoogleEvent.id, profile.id, formattedData);
+      await fetchGoogleCalendarEvents();
+    } catch (error) {
+      console.error('Erro ao atualizar evento:', error);
+      throw error;
+    }
+  }, [profile?.id, selectedGoogleEvent, fetchGoogleCalendarEvents]);
+
+  const handleDeleteGoogleEvent = useCallback(async (eventId: string) => {
+    if (!profile?.id) return;
+
+    try {
+      await GoogleCalendarService.deleteEvent(eventId, profile.id);
+      await fetchGoogleCalendarEvents();
+    } catch (error) {
+      console.error('Erro ao excluir evento:', error);
+      throw error;
+    }
+  }, [profile?.id, fetchGoogleCalendarEvents]);
+
+  const syncAllEvents = useCallback(async () => {
+    if (!profile?.id || !isGoogleConnected) return;
+    
     setIsLoading(true);
     setError(null);
+    
     try {
-      const response = await fetch(`${API_BASE_URL}/api/schedules/${profile.id}`);
-      
-      const contentType = response.headers.get("content-type");
-      if (!response.ok || !contentType || !contentType.includes("application/json")) {
-        const textResponse = await response.text();
-        console.error("Resposta inesperada do servidor:", textResponse);
-        throw new Error('Erro ao buscar agendamentos do backend.');
-      }
-
-      const { results } = await response.json();
-      
-      if (results) {
-        const formattedEvents: CalendarEvent[] = results.map((event: ScheduleEvent) => ({
-          title: event.Título,
-          start: new Date(event.Início),
-          end: new Date(event.Fim),
-          resource: event,
-        }));
-        setEvents(formattedEvents);
-      }
-    } catch (err: any) {
-      console.error("Erro ao buscar agendamentos:", err);
-      setError(err.message || "Não foi possível carregar agendamentos. Tente novamente.");
+      await fetchGoogleCalendarEvents();
+    } catch (error) {
+      console.error('Erro ao sincronizar eventos:', error);
+      setError('Erro ao carregar agenda do Google Calendar');
     } finally {
       setIsLoading(false);
     }
-  }, [profile?.id]);
+  }, [profile?.id, isGoogleConnected, fetchGoogleCalendarEvents]);
 
   useEffect(() => {
-    fetchSchedules();
-  }, [fetchSchedules]);
+    syncAllEvents();
+  }, [syncAllEvents]);
 
   const handleSelectEvent = useCallback((event: CalendarEvent) => {
-    setSelectedEvent(event);
-  }, []);
+    // Encontrar o evento do Google Calendar correspondente
+    const googleEvent = googleEvents.find(ge => ge.id === (event.resource as any).googleEventId);
+    if (googleEvent) {
+      setSelectedGoogleEvent(googleEvent);
+      setShowEditModal(true);
+    }
+  }, [googleEvents]);
 
   const handleDayClick = useCallback((date: Date) => {
     setSelectedDayForSidebar(date);
@@ -157,7 +283,7 @@ const AgendaPage: React.FC = () => {
   }
 
   return (
-    <div className="fade-in flex h-full gap-6 p-6">
+    <div className="fade-in flex h-full gap-4 lg:gap-6 p-4 lg:p-6 xl:p-8 2xl:p-10">
       <div className="flex flex-col flex-grow calendar-container">
         {error && (
             <div className="p-4 mb-4 text-sm text-red-700 bg-red-100 rounded-lg" role="alert">
@@ -185,6 +311,8 @@ const AgendaPage: React.FC = () => {
                 <ChevronRight size={20} />
                 </button>
             </div>
+            
+
 
             <div className="flex items-center gap-4 ml-auto">
                 <div className="inline-flex items-center bg-gray-100 p-1 rounded-lg"> 
@@ -227,6 +355,17 @@ const AgendaPage: React.FC = () => {
                 >
                     Hoje
                 </button>
+                      <button
+                          type="button"
+                          onClick={() => {
+                            console.log('[DEBUG] Redirecionando para configurações');
+                            window.location.href = '/configuracoes';
+                          }}
+                          className="px-3 py-2 text-xs font-medium text-gray-600 bg-gray-100 border border-transparent rounded-md hover:bg-gray-200 transition-colors"
+                          title="Ir para Configurações"
+                      >
+                          Configurações
+                      </button>
             </div>
         </div>
         
@@ -234,7 +373,7 @@ const AgendaPage: React.FC = () => {
             {currentView === 'month' && (
                 <MonthView 
                     currentDate={currentDate} 
-                    events={events} 
+                    events={allEvents} 
                     onDayClick={handleDayClick} 
                     selectedDayForSidebar={selectedDayForSidebar}
                     vagaColorMap={vagaColorMap}
@@ -244,7 +383,7 @@ const AgendaPage: React.FC = () => {
             {currentView === 'week' && (
                 <WeekView 
                     currentDate={currentDate} 
-                    events={events} 
+                    events={allEvents} 
                     onDayClick={handleDayClick} 
                     selectedDayForSidebar={selectedDayForSidebar} 
                     vagaColorMap={vagaColorMap} 
@@ -254,7 +393,7 @@ const AgendaPage: React.FC = () => {
             {currentView === 'day' && (
                 <DayView 
                     currentDate={currentDate} 
-                    events={events} 
+                    events={allEvents} 
                     vagaColorMap={vagaColorMap} 
                     onSelectEvent={handleSelectEvent}
                 />
@@ -264,7 +403,10 @@ const AgendaPage: React.FC = () => {
       
       <div className={`
         flex-shrink-0 transition-all duration-300 ease-in-out
-        ${isSidebarOpen ? 'w-80 ml-6' : 'w-12 ml-6'}
+        ${isSidebarOpen 
+          ? 'w-80 lg:w-96 xl:w-[28rem] 2xl:w-[32rem] ml-4 lg:ml-6' 
+          : 'w-12 ml-4 lg:ml-6'
+        }
         bg-white rounded-lg shadow-sm border border-gray-100 flex flex-col relative
       `}>
         <button
@@ -284,19 +426,23 @@ const AgendaPage: React.FC = () => {
         {isSidebarOpen && (
           <DailyEventsSidebar
             selectedDate={selectedDayForSidebar}
-            events={dailyEvents}
-            onViewDetails={handleSelectEvent}
-            vagaColorMap={vagaColorMap} 
+            googleEvents={googleEvents}
           />
         )}
       </div>
 
-      {selectedEvent && (
-        <EventDetailModal
-          event={selectedEvent}
-          onClose={() => setSelectedEvent(null)}
-        />
-      )}
+
+
+      <EditEventModal
+        isOpen={showEditModal}
+        onClose={() => {
+          setShowEditModal(false);
+          setSelectedGoogleEvent(null);
+        }}
+        event={selectedGoogleEvent}
+        onSave={handleUpdateGoogleEvent}
+        onDelete={handleDeleteGoogleEvent}
+      />
     </div>
   );
 };

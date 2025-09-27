@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Teste CORS - RecrutamentoIA</title>
+    <meta charset="UTF-8">
+</head>
+<body>
+    <h1>Teste CORS - RecrutamentoIA</h1>
+    <div id="result"></div>
+    <button onclick="testCORS()">Testar CORS</button>
+    
+    <script>
+        async function testCORS() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = 'Testando...';
+            
+            try {
+                // Teste 1: Health endpoint
+                console.log('Testando health endpoint...');
+                const healthResponse = await fetch('https://backend.recrutamentoia.com.br/api/health', {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+                
+                if (healthResponse.ok) {
+                    const healthData = await healthResponse.text();
+                    console.log('Health OK:', healthData);
+                    resultDiv.innerHTML += '<p>✅ Health endpoint OK</p>';
+                } else {
+                    throw new Error(`Health failed: ${healthResponse.status}`);
+                }
+                
+                // Teste 2: API data endpoint
+                console.log('Testando data endpoint...');
+                const dataResponse = await fetch('https://backend.recrutamentoia.com.br/api/data/all/2', {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+                
+                if (dataResponse.ok) {
+                    const data = await dataResponse.json();
+                    console.log('Data OK:', data);
+                    resultDiv.innerHTML += '<p>✅ Data endpoint OK</p>';
+                } else {
+                    throw new Error(`Data failed: ${dataResponse.status}`);
+                }
+                
+                resultDiv.innerHTML += '<p>🎉 Todos os testes passaram!</p>';
+                
+            } catch (error) {
+                console.error('Erro no teste CORS:', error);
+                resultDiv.innerHTML += `<p>❌ Erro: ${error.message}</p>`;
+            }
+        }
+        
+        // Teste automático ao carregar a página
+        window.onload = function() {
+            console.log('Página carregada de:', window.location.origin);
+            console.log('Testando CORS automaticamente...');
+            testCORS();
+        };
+    </script>
+</body>
+</html>

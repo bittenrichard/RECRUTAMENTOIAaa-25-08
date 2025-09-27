@@ -131,7 +131,18 @@ const ResultsPage: React.FC = () => {
   }, [profile, fetchAllData, updateCandidateStatusInStore]);
   
   const handleScheduleSubmit = async (details: { start: Date; end: Date; title: string; details: string; saveToGoogle: boolean }) => {
-    if (!candidateToSchedule || !selectedJob || !profile) return;
+    console.log('[DEBUG] handleScheduleSubmit chamado:', {
+      candidateToSchedule: candidateToSchedule?.nome,
+      selectedJob: selectedJob?.titulo,
+      profileId: profile?.id,
+      isGoogleConnected,
+      saveToGoogle: details.saveToGoogle
+    });
+    
+    if (!candidateToSchedule || !selectedJob || !profile) {
+      console.error('[DEBUG] Dados faltando:', { candidateToSchedule, selectedJob, profile });
+      return;
+    }
     
     if (details.saveToGoogle && !isGoogleConnected) {
         alert("Por favor, conecte a sua conta Google em 'Configurações' para agendar no Google Calendar.");
@@ -139,6 +150,21 @@ const ResultsPage: React.FC = () => {
     }
   
     try {
+        console.log('[DEBUG] Enviando requisição para criar evento:', {
+          url: `${API_BASE_URL}/api/google/calendar/create-event`,
+          payload: {
+            userId: profile.id,
+            eventData: {
+              start: details.start.toISOString(), 
+              end: details.end.toISOString(),
+              title: details.title, 
+              details: details.details,
+            },
+            candidate: candidateToSchedule, 
+            job: selectedJob,
+          }
+        });
+        
         const response = await fetch(`${API_BASE_URL}/api/google/calendar/create-event`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -153,12 +179,21 @@ const ResultsPage: React.FC = () => {
         });
 
         const data = await response.json();
+        console.log('[DEBUG] Resposta do servidor:', { status: response.status, data });
+        
         if (!response.ok) throw new Error(data.message || 'Falha ao criar evento.');
-        alert('Entrevista agendada com sucesso!');
+        
+        console.log('[DEBUG] Evento criado com sucesso!');
+        console.log('[DEBUG] Disparando evento para refresh do Google Calendar...');
+        
+        // Disparar evento customizado para refresh
+        window.dispatchEvent(new CustomEvent('refreshGoogleCalendar'));
+        
+        alert('Entrevista agendada com sucesso! Verifique a aba "Agenda" para ver o evento.');
         setIsScheduleModalOpen(false);
-    } catch (error: any) {
+    } catch (error) {
         console.error('Erro ao agendar entrevista:', error);
-        alert(error.message);
+        alert(error instanceof Error ? error.message : 'Erro desconhecido');
     }
   };
 
@@ -324,10 +359,8 @@ const ResultsPage: React.FC = () => {
         <ScheduleModal
           isOpen={isScheduleModalOpen}
           onClose={() => setIsScheduleModalOpen(false)}
-          onSubmit={handleScheduleSubmit}
+          onSchedule={handleScheduleSubmit}
           candidate={candidateToSchedule}
-          job={selectedJob}
-          isGoogleConnected={isGoogleConnected}
         />
       )}
       {isUploadModalOpen && (
