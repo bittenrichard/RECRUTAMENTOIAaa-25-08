@@ -13,6 +13,7 @@ interface DataState {
   addJob: (job: JobPosting) => void;
   updateJobInStore: (updatedJob: JobPosting) => void;
   deleteJobById: (jobId: number) => Promise<void>;
+  deleteCandidateById: (candidateId: number) => Promise<void>;
   updateCandidateStatusInStore: (candidateId: number, newStatus: CandidateStatus) => void;
 }
 
@@ -69,6 +70,24 @@ export const useDataStore = create<DataState>((set) => ({
       }));
     } catch (error) {
       console.error("Erro ao deletar vaga (useDataStore):", error);
+      throw error;
+    }
+  },
+
+  deleteCandidateById: async (candidateId: number) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/candidates/${candidateId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Não foi possível excluir o candidato.");
+      }
+      set((state) => ({
+        candidates: state.candidates.filter(candidate => candidate.id !== candidateId)
+      }));
+    } catch (error) {
+      console.error("Erro ao deletar candidato (useDataStore):", error);
       throw error;
     }
   },

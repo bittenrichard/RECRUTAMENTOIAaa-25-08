@@ -740,6 +740,25 @@ app.patch('/api/candidates/:candidateId/update-contact', async (req: Request, re
     }
 });
 
+// Rota para excluir candidato do banco de talentos
+app.delete('/api/candidates/:candidateId', async (req: Request, res: Response) => {
+    const { candidateId } = req.params;
+
+    try {
+        console.log(`[DELETE] Tentando excluir candidato ID: ${candidateId}`);
+
+        // Usar o cliente Baserow para deletar o candidato
+        await baserowServer.delete(CANDIDATOS_TABLE_ID, parseInt(candidateId));
+
+        console.log(`[DELETE] Candidato ${candidateId} excluído com sucesso`);
+        res.status(200).json({ message: 'Candidato excluído com sucesso!' });
+
+    } catch (error: any) {
+        console.error('[DELETE] Erro ao excluir candidato:', error.message);
+        res.status(500).json({ error: 'Falha ao excluir candidato.' });
+    }
+});
+
 
 // ==================================================================
 // === FIM DAS NOVAS FUNCIONALIDADES (FASE 1) =========================

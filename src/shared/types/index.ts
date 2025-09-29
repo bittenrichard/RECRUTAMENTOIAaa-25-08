@@ -44,6 +44,7 @@ export interface Candidate {
   sexo?: string;
   escolaridade?: string;
   idade?: number;
+  criado_em?: string; // Data de criação/entrada no banco de talentos
   // Outros campos que podem existir
   value?: string; // usado em alguns contextos
 }

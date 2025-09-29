@@ -87,23 +87,22 @@ const DashboardPage: React.FC = () => {
           {statsData.map((stat, index) => <StatCard key={index} {...stat} />)}
         </div>
         
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          <div className="xl:col-span-2">
-            <RecentScreenings
-              jobs={filteredJobs}
-              onViewResults={(job) => navigate(`/vaga/${job.id}/resultados`)}
-              onOpenDeleteModal={handleOpenDeleteModal}
-              onEditJob={(job) => navigate(`/vaga/${job.id}/editar`)}
-              onNewScreening={() => navigate('/nova-triagem')}
-              searchTerm={searchTerm}
-              setSearchTerm={setSearchTerm}
-            />
-          </div>
-          <div className="xl:col-span-1">
-            <TodaySchedule 
-              googleEvents={googleEvents} 
-            />
-          </div>
+        <div className="space-y-6">
+          {/* Triagens Recentes - Largura completa */}
+          <RecentScreenings
+            jobs={filteredJobs}
+            onViewResults={(job) => navigate(`/vaga/${job.id}/resultados`)}
+            onOpenDeleteModal={handleOpenDeleteModal}
+            onEditJob={(job) => navigate(`/vaga/${job.id}/editar`)}
+            onNewScreening={() => navigate('/nova-triagem')}
+            searchTerm={searchTerm}
+            setSearchTerm={setSearchTerm}
+          />
+          
+          {/* Compromissos de Hoje - Abaixo das triagens */}
+          <TodaySchedule 
+            googleEvents={googleEvents} 
+          />
         </div>
       </div>
       

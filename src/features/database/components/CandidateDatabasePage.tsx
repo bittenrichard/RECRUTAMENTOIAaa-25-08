@@ -1,12 +1,12 @@
 // Local: src/features/database/components/CandidateDatabasePage.tsx
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { useAuth } from '../../auth/hooks/useAuth';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Candidate } from '../../../shared/types';
-import { Search, Loader2, FilterX, Filter, ChevronDown, Eye, MessageCircle } from 'lucide-react';
+import { Loader2, FilterX, Filter, ChevronDown, Eye, MessageCircle, Trash2 } from 'lucide-react';
 import CandidateDetailModal from '../../results/components/CandidateDetailModal';
 import { formatPhoneNumberForWhatsApp } from '../../../shared/utils/formatters'; // <-- CORRIGIDO: Removido '}' extra e o 's'
 import { useDataStore } from '../../../shared/store/useDataStore';
+import DeleteCandidateModal from './DeleteCandidateModal';
 
 const sexOptions = ['Masculino', 'Feminino', 'Outro'];
 const escolaridadeOptions = [
@@ -24,8 +24,8 @@ const LoadingSpinner: React.FC = () => (
 );
 
 const CandidateDatabasePage: React.FC = () => {
-    const { profile } = useAuth();
-    const { candidates: allCandidatesFromStore, isDataLoading, fetchAllData } = useDataStore();
+
+    const { candidates: allCandidatesFromStore, isDataLoading, deleteCandidateById } = useDataStore();
     
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedVaga, setSelectedVaga] = useState('');
@@ -37,10 +37,12 @@ const CandidateDatabasePage: React.FC = () => {
     const [showFilters, setShowFilters] = useState(true);
     const [vagas, setVagas] = useState<string[]>([]);
     const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
+    const [candidateToDelete, setCandidateToDelete] = useState<Candidate | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     useEffect(() => {
         console.log("Banco de Talentos: allCandidatesFromStore (brutos):", allCandidatesFromStore);
-        const uniqueVagas = [...new Set(allCandidatesFromStore.flatMap(c => c.vaga?.map(v => v.value) || []).filter(Boolean))].sort();
+        const uniqueVagas = [...new Set(allCandidatesFromStore.flatMap(c => c.vaga?.map(v => v.value) || []).filter(Boolean) as string[])].sort();
         setVagas(uniqueVagas);
     }, [allCandidatesFromStore]);
 
@@ -78,6 +80,21 @@ const CandidateDatabasePage: React.FC = () => {
     const clearFilters = () => {
         setSearchTerm(''); setSelectedVaga(''); setSelectedSexo('');
         setSelectedEscolaridade(''); setMinIdade(''); setMaxIdade('');
+    };
+
+    const handleDeleteCandidate = async () => {
+        if (!candidateToDelete) return;
+        
+        setIsDeleting(true);
+        try {
+            await deleteCandidateById(candidateToDelete.id);
+            setCandidateToDelete(null);
+        } catch (error) {
+            console.error("Erro ao excluir candidato:", error);
+            alert("Não foi possível excluir o candidato. Tente novamente.");
+        } finally {
+            setIsDeleting(false);
+        }
     };
 
     const activeFilterCount = [searchTerm, selectedVaga, selectedSexo, selectedEscolaridade, minIdade, maxIdade].filter(Boolean).length;
@@ -158,6 +175,7 @@ const CandidateDatabasePage: React.FC = () => {
                                     <th className="px-4 py-3 font-semibold">Candidato</th>
                                     <th className="px-4 py-3 font-semibold">Vaga Original</th>
                                     <th className="px-4 py-3 font-semibold">Score</th>
+                                    <th className="px-4 py-3 font-semibold">Data de Entrada</th>
                                     <th className="px-4 py-3 font-semibold">Contato</th>
                                     <th className="px-4 py-3 font-semibold text-center">Ações</th>
                                 </tr>
@@ -165,12 +183,18 @@ const CandidateDatabasePage: React.FC = () => {
                             <tbody>
                                 {filteredCandidates.length > 0 ? (
                                     filteredCandidates.map((candidate) => {
-                                        const whatsappNumber = formatPhoneNumberForWhatsApp(candidate.telefone);
+                                        const whatsappNumber = formatPhoneNumberForWhatsApp(candidate.telefone || null);
                                         return (
                                             <tr key={candidate.id} className="border-b hover:bg-gray-50 transition-colors">
                                                 <td className="px-4 py-4 font-medium text-gray-800">{candidate.nome}</td>
                                                 <td className="px-4 py-4 text-gray-600">{candidate.vaga && candidate.vaga[0] ? candidate.vaga[0].value : 'N/A'}</td>
                                                 <td className="px-4 py-4 font-bold text-indigo-600">{candidate.score || 0}%</td>
+                                                <td className="px-4 py-4 text-gray-600">
+                                                    {candidate.criado_em 
+                                                        ? new Date(candidate.criado_em).toLocaleDateString('pt-BR')
+                                                        : 'Não informado'
+                                                    }
+                                                </td>
                                                 <td className="px-4 py-4 text-gray-600">{candidate.telefone || 'Não informado'}</td>
                                                 <td className="px-4 py-4">
                                                     <div className="flex items-center justify-center space-x-2">
@@ -182,6 +206,13 @@ const CandidateDatabasePage: React.FC = () => {
                                                             title={whatsappNumber ? 'Chamar no WhatsApp' : 'Telefone não disponível'}>
                                                             <MessageCircle size={18} />
                                                         </a>
+                                                        <button 
+                                                            onClick={() => setCandidateToDelete(candidate)} 
+                                                            className="p-2 text-gray-500 hover:bg-red-100 hover:text-red-600 rounded-full transition-colors" 
+                                                            title="Excluir do Banco de Talentos"
+                                                        >
+                                                            <Trash2 size={18} />
+                                                        </button>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -199,7 +230,16 @@ const CandidateDatabasePage: React.FC = () => {
                     </div>
                 </div>
             </div>
-            {selectedCandidate && (<CandidateDetailModal candidate={selectedCandidate} onClose={() => setSelectedCandidate(null)} />)}
+            {selectedCandidate && (<CandidateDetailModal candidate={selectedCandidate} onClose={() => setSelectedCandidate(null)} onScheduleInterview={() => {}} onUpdateStatus={() => {}} onDataSynced={() => {}} />)}
+            
+            {candidateToDelete && (
+                <DeleteCandidateModal
+                    candidateName={candidateToDelete.nome}
+                    onClose={() => setCandidateToDelete(null)}
+                    onConfirm={handleDeleteCandidate}
+                    isDeleting={isDeleting}
+                />
+            )}
         </>
     );
 };

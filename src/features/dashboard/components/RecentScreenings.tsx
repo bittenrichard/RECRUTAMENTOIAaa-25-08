@@ -56,7 +56,10 @@ const RecentScreenings: React.FC<RecentScreeningsProps> = ({
               <div className="flex justify-between items-start">
                 <div>
                   <h3 className="font-bold text-gray-900">{job.titulo}</h3>
-                  <p className="text-sm text-gray-500">{job.status?.value || 'Ativa'}</p>
+                  <p className="text-sm text-gray-500">Ativa</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Criado em: {new Date(job.criado_em).toLocaleDateString('pt-BR')}
+                  </p>
                 </div>
                 <div className="relative">
                   <button onClick={() => setOpenMenuId(openMenuId === job.id ? null : job.id)}>
@@ -93,6 +96,7 @@ const RecentScreenings: React.FC<RecentScreeningsProps> = ({
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vaga</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Candidatos</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Score Médio</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Criado em</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="relative px-6 py-3"><span className="sr-only">Ações</span></th>
               </tr>
@@ -104,8 +108,11 @@ const RecentScreenings: React.FC<RecentScreeningsProps> = ({
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{job.candidateCount ?? 0}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{job.averageScore ?? 0}%</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {new Date(job.criado_em).toLocaleDateString('pt-BR')}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                      {job.status?.value || 'Ativa'}
+                      Ativa
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium relative">
