@@ -5,7 +5,9 @@ import { Candidate, CandidateStatus } from '../../../shared/types';
 import { Loader2, FilterX, Filter, ChevronDown, Eye, MessageCircle, Trash2, Phone, Calendar, User, Building2, Award } from 'lucide-react';
 import CandidateDetailModal from '../../results/components/CandidateDetailModal';
 import { formatPhoneNumberForWhatsApp } from '../../../shared/utils/formatters';
+import { generateWhatsAppUrl } from '../../../shared/utils/whatsappMessages';
 import { useDataStore } from '../../../shared/store/useDataStore';
+import { useAuth } from '../../auth/hooks/useAuth';
 import DeleteCandidateModal from './DeleteCandidateModal';
 
 const sexOptions = ['Masculino', 'Feminino', 'Outro'];
@@ -32,36 +34,6 @@ const statusOptions: CandidateStatus[] = [
   'Entrevista Presencial', 'Teste Prático', 'Aprovado', 'Contratado', 'Reprovado'
 ];
 
-// Função para gerar mensagens personalizadas do WhatsApp
-const generateWhatsAppMessage = (candidate: Candidate, empresa: string = 'nossa empresa') => {
-  const status = candidate.status?.value || 'Triagem';
-  const nomeCompleto = candidate.nome;
-  const primeiroNome = nomeCompleto.split(' ')[0];
-  const tituloVaga = candidate.vaga?.[0]?.titulo || 'posição disponível';
-  
-  const messages: Record<string, string> = {
-    'Triagem': `Olá ${primeiroNome}, tudo bem? Aqui é da ${empresa}! 👋\n\nVocê se candidatou para a vaga de *${tituloVaga}* e gostaríamos de dar continuidade ao seu processo seletivo.\n\nPodemos conversar?`,
-    
-    'Entrevista': `Olá ${primeiroNome}! 😊\n\nParabéns! Você passou para a etapa de entrevista da vaga *${tituloVaga}* na ${empresa}.\n\nVamos agendar uma conversa? Que dia e horário seria melhor para você?`,
-    
-    'Entrevista por Vídeo': `Olá ${primeiroNome}, tudo bem? Aqui é da ${empresa}, você foi selecionado para a etapa de entrevista da vaga *${tituloVaga}*. 🎥\n\nSiga abaixo as instruções e responda às seguintes perguntas em um único vídeo:\n\n1️⃣ Quem é você e qual é a sua principal experiência profissional?\n\n2️⃣ Por que você gostaria de trabalhar conosco?\n\n3️⃣ Como você lida com situações de pressão ou imprevistos no trabalho?\n\n4️⃣ Qual é a sua maior qualidade que pode contribuir para a nossa equipe?\n\nEnvie o vídeo por aqui mesmo! 📹`,
-    
-    'Teste Teórico': `Olá ${primeiroNome}! 📚\n\nParabéns por avançar no processo seletivo da vaga *${tituloVaga}*!\n\nAgora você foi selecionado para realizar um teste teórico. Em breve enviaremos o link com as instruções.\n\nFique atento às mensagens! 🎯`,
-    
-    'Entrevista Presencial': `Olá ${primeiroNome}! 🎉\n\nParabéns! Você foi aprovado para a etapa final - entrevista presencial da vaga *${tituloVaga}*!\n\nVamos agendar um encontro em nossa empresa. Que dia seria melhor para você?`,
-    
-    'Teste Prático': `Olá ${primeiroNome}! 💪\n\nVocê foi selecionado para realizar um teste prático da vaga *${tituloVaga}*!\n\nEste é um grande passo no seu processo seletivo. Em breve entraremos em contato com mais detalhes.`,
-    
-    'Aprovado': `🎉 PARABÉNS ${primeiroNome}! 🎉\n\nTemos uma excelente notícia: você foi *APROVADO* para a vaga *${tituloVaga}* na ${empresa}!\n\nEm breve entraremos em contato para acertarmos os detalhes. Bem-vindo à equipe! 🚀`,
-    
-    'Contratado': `Olá ${primeiroNome}! 🤝\n\nSeja muito bem-vindo à ${empresa}!\n\nVamos alinhar os últimos detalhes da sua contratação para a posição de *${tituloVaga}*.\n\nEstamos ansiosos para tê-lo em nossa equipe! 🎊`,
-    
-    'Reprovado': `Olá ${primeiroNome}, tudo bem? 😊\n\nObrigado pelo seu interesse na vaga *${tituloVaga}* e pela participação no nosso processo seletivo.\n\nInfelizmente, não seguiremos com sua candidatura desta vez, mas seu perfil ficará em nosso banco de talentos para futuras oportunidades!\n\nContinue se candidatando às nossas vagas! 💪`
-  };
-  
-  return messages[status] || messages['Triagem'];
-};
-
 const LoadingSpinner: React.FC = () => (
     <div className="flex flex-col items-center justify-center h-full py-10">
         <Loader2 className="h-12 w-12 text-indigo-600 animate-spin" />
@@ -70,7 +42,7 @@ const LoadingSpinner: React.FC = () => (
 );
 
 const CandidateDatabasePage: React.FC = () => {
-
+    const { profile } = useAuth();
     const { candidates: allCandidatesFromStore, isDataLoading, deleteCandidateById } = useDataStore();
     
     const [searchTerm, setSearchTerm] = useState('');
@@ -309,8 +281,8 @@ const CandidateDatabasePage: React.FC = () => {
                         <div className="grid gap-4">
                             {filteredCandidates.map((candidate) => {
                                 const whatsappNumber = formatPhoneNumberForWhatsApp(candidate.telefone || null);
-                                const whatsappMessage = generateWhatsAppMessage(candidate, 'nossa empresa');
-                                const whatsappUrl = whatsappNumber ? `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(whatsappMessage)}` : undefined;
+                                const nomeEmpresa = profile?.empresa || 'nossa empresa';
+                                const whatsappUrl = whatsappNumber ? generateWhatsAppUrl(whatsappNumber, candidate, nomeEmpresa) : undefined;
                                 
                                 // Função para determinar a cor do status
                                 const getStatusColor = (status?: string) => {

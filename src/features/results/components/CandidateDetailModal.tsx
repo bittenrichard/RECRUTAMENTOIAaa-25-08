@@ -4,11 +4,12 @@ import { Candidate, CandidateStatus } from '../../../shared/types/index';
 import { useAuth } from '../../auth/hooks/useAuth';
 import ProfileChart from '../../behavioral/components/ProfileChart';
 import { formatPhoneNumberForWhatsApp } from '../../../shared/utils/formatters';
+import { generateWhatsAppUrl } from '../../../shared/utils/whatsappMessages';
 import RejectionReasonModal from './RejectionReasonModal';
 import { useToast } from '../../../shared/hooks/useToast';
 import { ToastContainer } from '../../../shared/components/Toast';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
 interface TheoreticalModel {
   id: string;
@@ -94,27 +95,26 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
   
   const videoInputRef = useRef<HTMLInputElement>(null);
 
+  // 🔧 NOVA ABORDAGEM: Usar dados que já vêm com o candidato (seguindo padrão do teste comportamental)
   const loadTheoreticalTestResults = useCallback(async () => {
     if (!candidate) return;
     setIsLoadingTheoreticalResults(true);
     
     try {
-      const response = await fetch(`${API_BASE_URL}/api/theoretical-test/results/${candidate.id}`, {
-        headers: {
-          'x-user-id': profile?.id?.toString() || '1'
-        }
-      });
-      const data = await response.json();
+      console.log('🔍 Carregando provas teóricas do candidato (dados já disponíveis):', candidate.id);
       
-      if (response.ok && data.success) {
-        setTheoreticalTestResults(data.data || []);
-      }
+      // Verificar se o candidato tem provas teóricas nos dados
+      const theoreticalTests = (candidate as any).theoretical_tests || [];
+      console.log('📊 Provas teóricas encontradas nos dados do candidato:', theoreticalTests);
+      
+      setTheoreticalTestResults(theoreticalTests);
     } catch (error) {
-      console.error('Erro ao buscar resultados da prova teórica:', error);
+      console.error('🚨 Erro ao carregar provas teóricas:', error);
+      setTheoreticalTestResults([]);
     } finally {
       setIsLoadingTheoreticalResults(false);
     }
-  }, [candidate, profile?.id]);
+  }, [candidate]);
 
   // Carregar resultados quando o modal abre
   useEffect(() => {
@@ -408,8 +408,10 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
     ? candidate.curriculo[0]?.url 
     : candidate.curriculo;
 
-  // Preparar número do WhatsApp
+  // Preparar número do WhatsApp e URL com mensagem personalizada
   const whatsappNumber = formatPhoneNumberForWhatsApp(candidate.telefone || null);
+  const nomeEmpresa = profile?.empresa || 'nossa empresa';
+  const whatsappUrl = whatsappNumber ? generateWhatsAppUrl(whatsappNumber, candidate, nomeEmpresa) : undefined;
 
   // Verificar se deve mostrar a seção de entrevista por vídeo
   const shouldShowVideoSection = () => {
@@ -805,7 +807,7 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
             </div>
             <div className="grid grid-cols-1 gap-2">
               <a
-                href={whatsappNumber ? `https://wa.me/${whatsappNumber}` : undefined}
+                href={whatsappUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => !whatsappNumber && e.preventDefault()}
@@ -814,7 +816,7 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
                     ? 'bg-green-600 text-white hover:bg-green-700' 
                     : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 }`}
-                title={whatsappNumber ? 'Chamar no WhatsApp' : 'Telefone não disponível'}
+                title={whatsappNumber ? 'Enviar mensagem personalizada no WhatsApp' : 'Telefone não disponível'}
               >
                 <MessageCircle size={16} /> WhatsApp
               </a>
@@ -857,7 +859,7 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
                 <CalendarPlus size={16} /> Agendar
               </button>
               <a
-                href={whatsappNumber ? `https://wa.me/${whatsappNumber}` : undefined}
+                href={whatsappUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => !whatsappNumber && e.preventDefault()}
@@ -866,7 +868,7 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
                     ? 'bg-green-600 text-white hover:bg-green-700 hover:shadow-md' 
                     : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
                 }`}
-                title={whatsappNumber ? 'Chamar no WhatsApp' : 'Telefone não disponível'}
+                title={whatsappNumber ? 'Enviar mensagem personalizada no WhatsApp' : 'Telefone não disponível'}
               >
                 <MessageCircle size={16} /> WhatsApp
               </a>

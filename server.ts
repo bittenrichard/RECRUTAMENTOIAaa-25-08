@@ -961,6 +961,25 @@ app.get('/api/data/all/:userId', async (req: Request, res: Response) => {
       }
     });
 
+    // 🔧 CARREGAR PROVAS TEÓRICAS (seguindo padrão do teste comportamental)
+    console.log(`🔍 Carregando provas teóricas para usuário ${userId}`);
+    const theoreticalTestsResult = await baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__recrutador__link_row_has=${userId}`);
+    const allTheoreticalTests = theoreticalTestsResult.results || [];
+    
+    console.log(`📊 Encontradas ${allTheoreticalTests.length} provas teóricas para o usuário`);
+    
+    const theoreticalTestsMap = new Map();
+    allTheoreticalTests.forEach(test => {
+      if (test.candidato && test.candidato.length > 0) {
+        const candidateId = test.candidato[0].id;
+        // Agrupar por candidato - pode ter múltiplas provas
+        if (!theoreticalTestsMap.has(candidateId)) {
+          theoreticalTestsMap.set(candidateId, []);
+        }
+        theoreticalTestsMap.get(candidateId).push(test);
+      }
+    });
+
     const regularCandidatesResult = await baserowServer.get(CANDIDATOS_TABLE_ID, '');
     const whatsappCandidatesResult = await baserowServer.get(WHATSAPP_CANDIDATOS_TABLE_ID, '');
 
@@ -1003,6 +1022,7 @@ app.get('/api/data/all/:userId', async (req: Request, res: Response) => {
       }
 
       const behavioralTest = behavioralTestMap.get(candidate.id);
+      const theoreticalTests = theoreticalTestsMap.get(candidate.id) || [];
       
       const enrichedCandidate = {
         ...candidate,
@@ -1013,6 +1033,14 @@ app.get('/api/data/all/:userId', async (req: Request, res: Response) => {
         perfil_comunicador: behavioralTest ? behavioralTest.perfil_comunicador : null,
         perfil_planejador: behavioralTest ? behavioralTest.perfil_planejador : null,
         perfil_analista: behavioralTest ? behavioralTest.perfil_analista : null,
+        // 🔧 ADICIONAR PROVAS TEÓRICAS
+        theoretical_tests: theoreticalTests.map((test: any) => ({
+          id: test.id,
+          modelo_nome: test.modelo_da_prova?.[0]?.value || 'Modelo não identificado',
+          pontuacao_total: test.pontuacao_total || 0,
+          status: test.status?.value || test.status || 'Pendente',
+          data_finalizacao: test.data_de_resposta
+        }))
       };
 
       return enrichedCandidate;
@@ -3433,77 +3461,9 @@ app.put('/api/theoretical-test/:testId/submit', async (req: Request, res: Respon
   }
 });
 
-// GET /api/theoretical-test/results/:candidateId - Buscar resultados das provas do candidato
-app.get('/api/theoretical-test/results/:candidateId', async (req: Request, res: Response) => {
-  const { candidateId } = req.params;
-  
-  // Pegar o ID do usuário dos headers
-  const userId = req.headers['x-user-id'] || req.query.userId || '1';
-
-  try {
-    console.log(`🔍 Buscando provas para candidato ${candidateId} do usuário ${userId}`);
-    
-    // 🔒 BUSCAR PROVAS COM ISOLAMENTO DUPLO: candidato + recrutador
-    const allResults = await baserowServer.get(
-      PROVAS_TEORICAS_APLICADAS_TABLE_ID,
-      `?filter__candidato=${candidateId}&filter__recrutador=${userId}&order_by=-data_de_resposta`
-    );
-
-    // ✅ PROVAS JÁ FILTRADAS NA QUERY - mas adicionar verificação extra por segurança
-    const results = allResults.results || [];
-    
-    // 🔒 VERIFICAÇÃO ADICIONAL DE SEGURANÇA - garantir isolamento SaaS
-    const filteredResults = results.filter((test: any) => {
-      const testRecruiter = test.recrutador;
-      const isValid = String(testRecruiter) === String(userId);
-      console.log(`🔍 Prova ${test.id}: candidato=${candidateId}, recrutador=${testRecruiter}, userId=${userId}, válida=${isValid}`);
-      return isValid;
-    });
-    
-    if (filteredResults.length !== results.length) {
-      console.log(`⚠️ ALERTA SEGURANÇA: ${results.length - filteredResults.length} provas filtradas por isolamento`);
-    }
-
-    console.log(`📊 Encontradas ${filteredResults?.length || 0} provas para candidato ${candidateId}`);
-
-    if (!filteredResults || filteredResults.length === 0) {
-      console.log(`✅ Nenhuma prova encontrada - retornando array vazio`);
-      return res.json({ success: true, data: [] });
-    }
-
-    const formattedResults = await Promise.all(filteredResults.map(async (test: {
-      id: number;
-      modelo_da_prova: any[];
-      pontuacao_total?: number;
-      data_de_resposta?: string;
-      status: string;
-    }) => {
-      // Buscar modelo para obter nome
-      let modelName = 'Modelo não encontrado';
-      if (test.modelo_da_prova && test.modelo_da_prova.length > 0) {
-        try {
-          const model = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, test.modelo_da_prova[0].id);
-          modelName = model?.titulo || 'Modelo não encontrado';
-        } catch (error) {
-          console.error('Erro ao buscar modelo:', error);
-        }
-      }
-      
-      return {
-        id: test.id,
-        modelo_nome: modelName,
-        pontuacao_total: test.pontuacao_total || 0,
-        status: test.status || 'Pendente', // Usar o status string diretamente
-        data_finalizacao: test.data_de_resposta
-      };
-    }));
-
-    res.json({ success: true, data: formattedResults });
-  } catch (error: unknown) {
-    console.error('Erro ao buscar resultados das provas:', error);
-    res.status(500).json({ error: 'Não foi possível buscar os resultados das provas.' });
-  }
-});
+// *** ENDPOINT REMOVIDO - PROVAS TEÓRICAS AGORA VÊM NO /api/data/all ***
+// As provas teóricas são carregadas junto com os candidatos no endpoint principal,
+// seguindo o mesmo padrão do teste comportamental
 
 
 

@@ -1,7 +1,9 @@
 import React from 'react';
 import { X, MessageCircle } from 'lucide-react';
-import { Candidate } from '../../results/types';
+import { Candidate } from '../../../shared/types';
 import { formatPhoneNumberForWhatsApp } from '../../../shared/utils/formatters';
+import { generateWhatsAppUrl } from '../../../shared/utils/whatsappMessages';
+import { useAuth } from '../../auth/hooks/useAuth';
 
 interface ApprovedCandidatesModalProps {
   candidates: Candidate[];
@@ -10,6 +12,8 @@ interface ApprovedCandidatesModalProps {
 }
 
 const ApprovedCandidatesModal: React.FC<ApprovedCandidatesModalProps> = ({ candidates, onClose, isLoading }) => {
+  const { profile } = useAuth();
+  
   const getScoreColor = (score: number) => {
     if (score >= 95) return 'text-green-600';
     return 'text-blue-600';
@@ -43,7 +47,9 @@ const ApprovedCandidatesModal: React.FC<ApprovedCandidatesModalProps> = ({ candi
               </thead>
               <tbody>
                 {candidates.map((candidate) => {
-                  const whatsappNumber = formatPhoneNumberForWhatsApp(candidate.telefone);
+                  const whatsappNumber = formatPhoneNumberForWhatsApp(candidate.telefone || null);
+                  const nomeEmpresa = profile?.empresa || 'nossa empresa';
+                  const whatsappUrl = whatsappNumber ? generateWhatsAppUrl(whatsappNumber, candidate, nomeEmpresa) : undefined;
                   
                   return (
                     <tr key={candidate.id} className="border-b hover:bg-gray-50 transition-colors">
@@ -57,7 +63,7 @@ const ApprovedCandidatesModal: React.FC<ApprovedCandidatesModalProps> = ({ candi
                       </td>
                       <td className="px-4 py-4 text-center">
                         <a
-                          href={whatsappNumber ? `https://wa.me/${whatsappNumber}` : undefined}
+                          href={whatsappUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           className={`
@@ -70,7 +76,7 @@ const ApprovedCandidatesModal: React.FC<ApprovedCandidatesModalProps> = ({ candi
                             }
                           `}
                           onClick={(e) => !whatsappNumber && e.preventDefault()}
-                          title={whatsappNumber ? 'Chamar no WhatsApp' : 'Telefone não disponível'}
+                          title={whatsappNumber ? 'Enviar mensagem personalizada no WhatsApp' : 'Telefone não disponível'}
                         >
                           <MessageCircle size={16} />
                           Chamar
