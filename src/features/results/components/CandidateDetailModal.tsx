@@ -318,6 +318,19 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
         
         const link = `${window.location.origin}/prova-teorica/${data.data.id}`;
         setGeneratedTheoreticalLink(link);
+        
+        // 🔧 CORREÇÃO: Adicionar nova prova à lista local
+        const newTest = {
+          id: data.data.id,
+          modelo_nome: data.data.modelo_nome || 'Nova Prova',
+          pontuacao_total: 0,
+          status: 'Pendente',
+          data_finalizacao: undefined
+        };
+        
+        setTheoreticalTestResults(currentResults => [...currentResults, newTest]);
+        
+        showSuccess('Link da prova teórica gerado com sucesso!');
     } catch (error: unknown) {
         console.error("Erro ao gerar link do teste teórico:", error);
         showError("Não foi possível gerar o link do teste teórico. Tente novamente.");
@@ -340,8 +353,14 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
       const data = await response.json();
       if (response.ok && data.success) {
         showSuccess('Prova excluída com sucesso!');
-        // Recarregar resultados
-        loadTheoreticalTestResults();
+        
+        // 🔧 CORREÇÃO: Atualizar estado local removendo a prova excluída
+        setTheoreticalTestResults(currentResults => 
+          currentResults.filter(test => test.id !== testId)
+        );
+        
+        // Opcional: Também recarregar para garantir sincronização
+        // loadTheoreticalTestResults();
       } else {
         throw new Error(data.error || 'Erro ao excluir prova.');
       }

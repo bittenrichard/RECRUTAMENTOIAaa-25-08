@@ -39,17 +39,13 @@ export const generatePersonalizedWhatsAppMessage = (
   console.log(`🔍 WhatsApp Debug: Status do candidato = "${status}"`);
   
   const messageTemplates: Record<string, string> = {
-    'Triagem': `Olá ${primeiroNome}, tudo bem? 😊
-
-Aqui é da *${nomeEmpresa}*!
+    'Triagem': `Olá ${primeiroNome}, tudo bem? Aqui é da *${nomeEmpresa}*!
 
 Você se candidatou para a vaga de *${tituloVaga}* e gostaríamos de dar continuidade ao seu processo seletivo.
 
 Podemos conversar sobre a oportunidade? 💼`,
 
-    'Entrevista': `Olá ${primeiroNome}, tudo bem? 😊
-
-Aqui é da *${nomeEmpresa}*!
+    'Entrevista': `Olá ${primeiroNome}, tudo bem? Aqui é da *${nomeEmpresa}*!
 
 🎉 *Parabéns!* Você passou para a próxima etapa do processo seletivo para a vaga de *${tituloVaga}*.
 
@@ -90,9 +86,7 @@ Você foi selecionado para a etapa de *entrevista por vídeo* da vaga *${tituloV
 
 Aguardamos seu retorno! 🚀`,
 
-    'Teste Teorico': `Olá ${primeiroNome}, tudo bem? 😊
-
-Aqui é da *${nomeEmpresa}*!
+    'Teste Teorico': `Olá ${primeiroNome}, tudo bem? Aqui é da *${nomeEmpresa}*!
 
 📚 Você passou para a etapa de *Teste Teórico* da vaga de *${tituloVaga}*.
 
@@ -100,9 +94,7 @@ Em breve enviaremos o link para realização do teste.
 
 Aguarde nosso contato! 📋`,
 
-    'Teste Teórico': `Olá ${primeiroNome}, tudo bem? 😊
-
-Aqui é da *${nomeEmpresa}*!
+    'Teste Teórico': `Olá ${primeiroNome}, tudo bem? Aqui é da *${nomeEmpresa}*!
 
 📚 Você passou para a etapa de *Teste Teórico* da vaga de *${tituloVaga}*.
 
@@ -110,9 +102,7 @@ Em breve enviaremos o link para realização do teste.
 
 Aguarde nosso contato! 📋`,
 
-    'Entrevista Presencial': `Olá ${primeiroNome}, tudo bem? 😊
-
-Aqui é da *${nomeEmpresa}*!
+    'Entrevista Presencial': `Olá ${primeiroNome}, tudo bem? Aqui é da *${nomeEmpresa}*!
 
 🎉 *Parabéns!* Você foi selecionado para a *Entrevista Presencial* da vaga de *${tituloVaga}*.
 
@@ -120,9 +110,7 @@ Vamos agendar um horário para conversarmos pessoalmente.
 
 Qual seria sua disponibilidade? 🏢`,
 
-    'Teste Pratico': `Olá ${primeiroNome}, tudo bem? 😊
-
-Aqui é da *${nomeEmpresa}*!
+    'Teste Pratico': `Olá ${primeiroNome}, tudo bem? Aqui é da *${nomeEmpresa}*!
 
 🎯 Você passou para a etapa de *Teste Prático* da vaga de *${tituloVaga}*!
 
@@ -130,9 +118,7 @@ Esta é uma oportunidade para demonstrar suas habilidades na prática.
 
 Em breve entraremos em contato com os detalhes. 💪`,
 
-    'Teste Prático': `Olá ${primeiroNome}, tudo bem? 😊
-
-Aqui é da *${nomeEmpresa}*!
+    'Teste Prático': `Olá ${primeiroNome}, tudo bem? Aqui é da *${nomeEmpresa}*!
 
 🎯 Você passou para a etapa de *Teste Prático* da vaga de *${tituloVaga}*!
 
@@ -168,9 +154,7 @@ Manteremos seu currículo em nosso banco de talentos para futuras oportunidades!
 
 Desejamos muito sucesso em sua jornada profissional. 🙏✨`,
 
-    'Pendente': `Olá ${primeiroNome}, tudo bem? 😊
-
-Aqui é da *${nomeEmpresa}*!
+    'Pendente': `Olá ${primeiroNome}, tudo bem? Aqui é da *${nomeEmpresa}*!
 
 Estamos analisando sua candidatura para a vaga de *${tituloVaga}* e em breve retornaremos com mais informações.
 
