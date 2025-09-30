@@ -17,6 +17,7 @@ const KanbanBoard = forwardRef<HTMLDivElement, KanbanBoardProps>(
       'Triagem',
       'Entrevista por Vídeo',
       'Teste Teórico',
+      'Entrevista Presencial',
       'Teste Prático',
       'Contratado',
       'Reprovado'

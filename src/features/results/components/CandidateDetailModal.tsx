@@ -1,9 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, User, Star, Briefcase, FileText, Download, CalendarPlus, ChevronDown, RefreshCcw, Mail, BrainCircuit, UploadCloud, Video, Loader2, ClipboardList, MessageCircle, AlertCircle, BookOpen, Clock, ChevronRight, Eye, Trash2 } from 'lucide-react';
+import { X, User, Star, Briefcase, FileText, Download, CalendarPlus, ChevronDown, RefreshCcw, Mail, BrainCircuit, UploadCloud, Video, Loader2, ClipboardList, MessageCircle, AlertCircle, BookOpen, Clock, ChevronRight, Eye, Trash2, Edit, Check } from 'lucide-react';
 import { Candidate, CandidateStatus } from '../../../shared/types/index';
 import { useAuth } from '../../auth/hooks/useAuth';
 import ProfileChart from '../../behavioral/components/ProfileChart';
 import { formatPhoneNumberForWhatsApp } from '../../../shared/utils/formatters';
+import RejectionReasonModal from './RejectionReasonModal';
+import { useToast } from '../../../shared/hooks/useToast';
+import { ToastContainer } from '../../../shared/components/Toast';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -80,7 +83,15 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
     data_finalizacao?: string;
   }[]>([]);
   const [isLoadingTheoreticalResults, setIsLoadingTheoreticalResults] = useState(false);
+  const [interviewNotes, setInterviewNotes] = useState<string>('');
+  const [rejectionReason, setRejectionReason] = useState<string>('');
+  const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [isSavingNotes, setIsSavingNotes] = useState(false);
+  const [showRejectionModal, setShowRejectionModal] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
+  const { toasts, showSuccess, showError, showWarning, closeToast } = useToast();
+  
   const videoInputRef = useRef<HTMLInputElement>(null);
 
   const loadTheoreticalTestResults = useCallback(async () => {
@@ -88,7 +99,11 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
     setIsLoadingTheoreticalResults(true);
     
     try {
-      const response = await fetch(`${API_BASE_URL}/api/theoretical-test/results/${candidate.id}`);
+      const response = await fetch(`${API_BASE_URL}/api/theoretical-test/results/${candidate.id}`, {
+        headers: {
+          'x-user-id': profile?.id?.toString() || '1'
+        }
+      });
       const data = await response.json();
       
       if (response.ok && data.success) {
@@ -99,12 +114,15 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
     } finally {
       setIsLoadingTheoreticalResults(false);
     }
-  }, [candidate]);
+  }, [candidate, profile?.id]);
 
   // Carregar resultados quando o modal abre
   useEffect(() => {
     if (candidate) {
       loadTheoreticalTestResults();
+      // Carregar valores existentes das anotações
+      setInterviewNotes(getSafeValue(candidate.notas_entrevista) || '');
+      setRejectionReason(getSafeValue(candidate.motivo_reprova) || '');
     }
   }, [candidate, loadTheoreticalTestResults]);
 
@@ -156,7 +174,7 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
         const err = await response.json();
         throw new Error(err.error || `Falha no upload do ${type}.`);
       }
-      alert(`Upload de ${type === 'video' ? 'vídeo' : 'teste'} realizado com sucesso!`);
+      showSuccess(`Upload de ${type === 'video' ? 'vídeo' : 'teste'} realizado com sucesso!`);
       onDataSynced(); 
     } catch (error: unknown) {
       console.error(`Erro no upload do ${type}:`, error);
@@ -171,8 +189,48 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
   };
 
   const handleStatusChange = (newStatus: CandidateStatus) => {
-    onUpdateStatus(candidate.id, newStatus);
+    if (newStatus === 'Reprovado') {
+      setShowRejectionModal(true);
+    } else {
+      onUpdateStatus(candidate.id, newStatus);
+    }
     setShowStatusMenu(false);
+  };
+
+  const handleRejectionConfirm = async (reason: string) => {
+    setIsUpdatingStatus(true);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/candidates/${candidate.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: 'Reprovado',
+          motivo_reprova: reason,
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setRejectionReason(reason);
+        onUpdateStatus(candidate.id, 'Reprovado');
+        onDataSynced();
+        setShowRejectionModal(false);
+      } else {
+        throw new Error(data.error || 'Erro ao atualizar status.');
+      }
+    } catch (error) {
+      console.error('Erro ao atualizar status:', error);
+      showError('Não foi possível atualizar o status. Tente novamente.');
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  const handleRejectionCancel = () => {
+    setShowRejectionModal(false);
   };
 
   // DEBUG - Logs temporários
@@ -196,7 +254,7 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
         setGeneratedLink(link);
     } catch (error: unknown) {
         console.error("Erro ao gerar link do teste:", error);
-        alert("Não foi possível gerar o link do teste. Tente novamente.");
+        showError("Não foi possível gerar o link do teste. Tente novamente.");
     } finally {
         setIsGeneratingLink(false);
     }
@@ -206,7 +264,11 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
   const loadTheoreticalModels = async () => {
     setIsLoadingModels(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/public/theoretical-models`);
+      const response = await fetch(`${API_BASE_URL}/api/public/theoretical-models`, {
+        headers: {
+          'x-user-id': profile?.id?.toString() || '1'
+        }
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Erro ao carregar modelos');
       
@@ -222,7 +284,7 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
       setShowModelSelection(true);
     } catch (error) {
       console.error('Erro ao carregar modelos:', error);
-      alert('Erro ao carregar modelos de prova. Tente novamente.');
+      showError('Erro ao carregar modelos de prova. Tente novamente.');
     } finally {
       setIsLoadingModels(false);
     }
@@ -238,7 +300,10 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
     try {
         const response = await fetch(`${API_BASE_URL}/api/theoretical-test/generate`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+              'Content-Type': 'application/json',
+              'x-user-id': profile?.id?.toString() || '1'
+            },
             body: JSON.stringify({ 
               candidato_id: candidate.id.toString(), 
               modelo_prova_id: modelId,
@@ -255,7 +320,7 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
         setGeneratedTheoreticalLink(link);
     } catch (error: unknown) {
         console.error("Erro ao gerar link do teste teórico:", error);
-        alert("Não foi possível gerar o link do teste teórico. Tente novamente.");
+        showError("Não foi possível gerar o link do teste teórico. Tente novamente.");
     } finally {
         setIsGeneratingTheoreticalLink(false);
     }
@@ -274,7 +339,7 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
       
       const data = await response.json();
       if (response.ok && data.success) {
-        alert('Prova excluída com sucesso!');
+        showSuccess('Prova excluída com sucesso!');
         // Recarregar resultados
         loadTheoreticalTestResults();
       } else {
@@ -282,7 +347,7 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
       }
     } catch (error) {
       console.error('Erro ao excluir prova:', error);
-      alert('Não foi possível excluir a prova. Tente novamente.');
+      showError('Não foi possível excluir a prova. Tente novamente.');
     }
   };
 
@@ -299,7 +364,7 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
       }
     } catch (error) {
       console.error('Erro ao buscar gabarito:', error);
-      alert('Não foi possível acessar o gabarito. Tente novamente.');
+      showError('Não foi possível acessar o gabarito. Tente novamente.');
     }
   };
 
@@ -348,8 +413,40 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
 
   // Verificar se deve mostrar a seção de entrevista por vídeo
   const shouldShowVideoSection = () => {
-    const videoStatusList = ['Entrevista por Vídeo', 'Teste Teórico', 'Teste Prático', 'Contratado', 'Reprovado'];
+    const videoStatusList = ['Entrevista por Vídeo', 'Teste Teórico', 'Entrevista Presencial', 'Teste Prático', 'Contratado', 'Reprovado'];
     return videoStatusList.includes(getSafeValue(candidate.status?.value) || getSafeValue(candidate.status) || '');
+  };
+
+  // Função para salvar anotações da entrevista
+  const saveInterviewNotes = async () => {
+    if (!candidate) return;
+    setIsSavingNotes(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/candidates/${candidate.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          notas_entrevista: interviewNotes,
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setIsEditingNotes(false);
+        onDataSynced(); // Atualizar dados na listagem
+        showSuccess('Anotações salvas com sucesso!');
+      } else {
+        throw new Error(data.error || 'Erro ao salvar anotações.');
+      }
+    } catch (error) {
+      console.error('Erro ao salvar anotações:', error);
+      showError('Não foi possível salvar as anotações. Tente novamente.');
+    } finally {
+      setIsSavingNotes(false);
+    }
   };
 
   return (
@@ -376,6 +473,87 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
           </div>
           
           <div><div className="flex items-center text-gray-600 mb-2"><FileText size={18} className="mr-2" /><h4 className="text-lg font-bold">Resumo da IA</h4></div><p className="text-gray-700 bg-gray-50 p-4 rounded-lg border leading-relaxed">{typeof candidate.resumo_ia === 'string' ? candidate.resumo_ia : "Nenhum resumo disponível."}</p></div>
+          
+          {/* Seção de Anotações da Entrevista */}
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center text-blue-700">
+                <FileText size={20} className="mr-2" />
+                <h4 className="text-lg font-bold">Anotações da Entrevista</h4>
+              </div>
+              {!isEditingNotes && (
+                <button
+                  onClick={() => setIsEditingNotes(true)}
+                  className="flex items-center gap-2 px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors"
+                >
+                  <Edit size={16} />
+                  Editar
+                </button>
+              )}
+            </div>
+            
+            {isEditingNotes ? (
+              <div className="space-y-3">
+                <textarea
+                  value={interviewNotes}
+                  onChange={(e) => setInterviewNotes(e.target.value)}
+                  placeholder="Digite suas anotações sobre o candidato..."
+                  className="w-full h-32 p-3 border border-blue-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={saveInterviewNotes}
+                    disabled={isSavingNotes}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-400 transition-colors"
+                  >
+                    {isSavingNotes ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Salvando...
+                      </>
+                    ) : (
+                      <>
+                        <Check size={16} />
+                        Salvar
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsEditingNotes(false);
+                      setInterviewNotes(getSafeValue(candidate.notas_entrevista) || '');
+                    }}
+                    disabled={isSavingNotes}
+                    className="flex items-center gap-2 px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 disabled:bg-gray-400 transition-colors"
+                  >
+                    <X size={16} />
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white p-4 rounded-lg border border-blue-200">
+                {interviewNotes ? (
+                  <p className="text-gray-700 whitespace-pre-wrap">{interviewNotes}</p>
+                ) : (
+                  <p className="text-gray-500 italic">Nenhuma anotação disponível. Clique em "Editar" para adicionar.</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Mostrar motivo de reprovação se o candidato foi reprovado */}
+          {(getSafeValue(candidate.status?.value) || getSafeValue(candidate.status)) === 'Reprovado' && rejectionReason && (
+            <div className="bg-gradient-to-br from-red-50 to-orange-50 border border-red-200 rounded-lg p-6">
+              <div className="flex items-center text-red-700 mb-3">
+                <AlertCircle size={20} className="mr-2" />
+                <h4 className="text-lg font-bold">Motivo da Reprovação</h4>
+              </div>
+              <div className="bg-white p-4 rounded-lg border border-red-200">
+                <p className="text-gray-700">{rejectionReason}</p>
+              </div>
+            </div>
+          )}
           
           {/* Seção de Entrevista por Vídeo */}
           {shouldShowVideoSection() && (
@@ -740,7 +918,7 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
               </button>
               {showStatusMenu && (
                 <div className="absolute right-0 bottom-full mb-2 w-64 bg-white rounded-md shadow-lg border border-gray-200 z-30">
-                  {['Triagem', 'Entrevista por Vídeo', 'Teste Teórico', 'Teste Prático', 'Contratado', 'Reprovado'].map((status) => (
+                  {['Triagem', 'Entrevista por Vídeo', 'Teste Teórico', 'Entrevista Presencial', 'Teste Prático', 'Contratado', 'Reprovado'].map((status) => (
                     <button key={status} onClick={() => handleStatusChange(status as CandidateStatus)} className="block w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 first:rounded-t-md last:rounded-b-md transition-colors">
                       {status}
                     </button>
@@ -758,7 +936,7 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
               </button>
               {showStatusMenu && (
                 <div className="absolute left-0 top-full mt-2 w-full bg-white rounded-md shadow-lg border border-gray-200 z-30">
-                  {['Triagem', 'Entrevista por Vídeo', 'Teste Teórico', 'Teste Prático', 'Contratado', 'Reprovado'].map((status) => (
+                  {['Triagem', 'Entrevista por Vídeo', 'Teste Teórico', 'Entrevista Presencial', 'Teste Prático', 'Contratado', 'Reprovado'].map((status) => (
                     <button key={status} onClick={() => handleStatusChange(status as CandidateStatus)} className="block w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 first:rounded-t-md last:rounded-b-md transition-colors">
                       {status}
                     </button>
@@ -872,6 +1050,18 @@ const CandidateDetailModal: React.FC<CandidateDetailModalProps> = ({ candidate, 
           </div>
         </div>
       )}
+
+      {/* Modal de Motivo de Reprovação */}
+      <RejectionReasonModal
+        isOpen={showRejectionModal}
+        candidateName={getSafeValue(candidate.nome)}
+        onConfirm={handleRejectionConfirm}
+        onCancel={handleRejectionCancel}
+        isLoading={isUpdatingStatus}
+      />
+
+      {/* Container de Toasts */}
+      <ToastContainer toasts={toasts} onClose={closeToast} />
     </div>
   );
 };

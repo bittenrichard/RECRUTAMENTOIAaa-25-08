@@ -58,7 +58,7 @@ const RecentScreenings: React.FC<RecentScreeningsProps> = ({
                   <h3 className="font-bold text-gray-900">{job.titulo}</h3>
                   <p className="text-sm text-gray-500">Ativa</p>
                   <p className="text-xs text-gray-400 mt-1">
-                    Criado em: {new Date(job.criado_em).toLocaleDateString('pt-BR')}
+                    Vaga aberta em: {new Date(job.criado_em).toLocaleDateString('pt-BR')}
                   </p>
                 </div>
                 <div className="relative">
@@ -96,7 +96,7 @@ const RecentScreenings: React.FC<RecentScreeningsProps> = ({
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vaga</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Candidatos</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Score Médio</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Criado em</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vaga Aberta</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="relative px-6 py-3"><span className="sr-only">Ações</span></th>
               </tr>

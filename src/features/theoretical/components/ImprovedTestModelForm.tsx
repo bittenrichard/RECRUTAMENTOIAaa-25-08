@@ -144,9 +144,10 @@ const ImprovedTestModelForm: React.FC<ImprovedTestModelFormProps> = ({
       id: crypto.randomUUID(),
       tipo,
       enunciado: '',
-      opcoes: tipo === 'multipla_escolha' ? ['', '', '', ''] : undefined,
-      resposta_correta: tipo === 'dissertativa' ? undefined : '',
-      pontuacao: 1
+      opcoes: tipo === 'multipla_escolha' ? ['Opção A', 'Opção B', 'Opção C', 'Opção D'] : undefined,
+      resposta_correta: tipo === 'dissertativa' ? undefined : (tipo === 'multipla_escolha' ? 'Opção A' : ''),
+      pontuacao: 1,
+      dificuldade: 'media' // Definir média como padrão
     };
 
     setQuestoes([...questoes, newQuestion]);
@@ -173,8 +174,19 @@ const ImprovedTestModelForm: React.FC<ImprovedTestModelFormProps> = ({
   const updateQuestionOption = (questionIndex: number, optionIndex: number, value: string) => {
     const updatedQuestoes = [...questoes];
     const opcoes = [...(updatedQuestoes[questionIndex].opcoes || [])];
+    
+    // Se estamos editando a opção que é a resposta correta atual, atualizar também a resposta correta
+    const respostaCorretaAtual = updatedQuestoes[questionIndex].resposta_correta;
+    const opcaoAnterior = opcoes[optionIndex];
+    
     opcoes[optionIndex] = value;
     updatedQuestoes[questionIndex].opcoes = opcoes;
+    
+    // Sincronizar resposta correta se era a opção que foi editada
+    if (respostaCorretaAtual === opcaoAnterior) {
+      updatedQuestoes[questionIndex].resposta_correta = value;
+    }
+    
     setQuestoes(updatedQuestoes);
   };
 
@@ -507,14 +519,29 @@ const ImprovedQuestionEditor: React.FC<ImprovedQuestionEditorProps> = ({
                 value={questao.tipo}
                 onChange={(e) => onUpdate({ 
                   tipo: e.target.value as QuestionType,
-                  opcoes: e.target.value === 'multipla_escolha' ? ['', '', '', ''] : undefined,
-                  resposta_correta: e.target.value === 'dissertativa' ? undefined : ''
+                  opcoes: e.target.value === 'multipla_escolha' ? ['Opção A', 'Opção B', 'Opção C', 'Opção D'] : undefined,
+                  resposta_correta: e.target.value === 'dissertativa' ? undefined : (e.target.value === 'multipla_escolha' ? 'Opção A' : '')
                 })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               >
                 <option value="multipla_escolha">Múltipla Escolha</option>
                 <option value="verdadeiro_falso">Verdadeiro/Falso</option>
                 <option value="dissertativa">Dissertativa</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Dificuldade
+              </label>
+              <select
+                value={questao.dificuldade || 'media'}
+                onChange={(e) => onUpdate({ dificuldade: e.target.value as 'facil' | 'media' | 'dificil' })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="facil">Fácil (30s)</option>
+                <option value="media">Média (45s)</option>
+                <option value="dificil">Difícil (60s)</option>
               </select>
             </div>
 

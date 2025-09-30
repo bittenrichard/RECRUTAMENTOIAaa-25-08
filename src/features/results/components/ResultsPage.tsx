@@ -11,6 +11,7 @@ import { useGoogleAuth } from '../../../shared/hooks/useGoogleAuth';
 import { useDataStore } from '../../../shared/store/useDataStore';
 import UploadModal from './UploadModal';
 import VideoUploadModal from './VideoUploadModal';
+import RejectionReasonModal from './RejectionReasonModal';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -36,6 +37,11 @@ const ResultsPage: React.FC = () => {
   const [isVideoUploadModalOpen, setIsVideoUploadModalOpen] = useState(false);
   const [candidateForVideo, setCandidateForVideo] = useState<Candidate | null>(null);
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'score', direction: 'descending' });
+  
+  // Estados para reprovação
+  const [showRejectionModal, setShowRejectionModal] = useState(false);
+  const [candidateToReject, setCandidateToReject] = useState<Candidate | null>(null);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   
   // Estados para upload de currículos
   const [isUploading, setIsUploading] = useState(false);
@@ -113,6 +119,17 @@ const ResultsPage: React.FC = () => {
   const handleUpdateCandidateStatus = useCallback(async (candidateId: number, newStatus: CandidateStatus) => {
     if (!profile) return;
     
+    // Se o novo status for "Reprovado", abrir modal para motivo
+    if (newStatus === 'Reprovado') {
+      const candidate = candidates.find(c => c.id === candidateId);
+      if (candidate) {
+        setCandidateToReject(candidate);
+        setShowRejectionModal(true);
+        return; // Não atualizar ainda - esperar confirmação do modal
+      }
+    }
+    
+    // Para outros status, atualizar normalmente
     updateCandidateStatusInStore(candidateId, newStatus);
     
     try {
@@ -128,7 +145,53 @@ const ResultsPage: React.FC = () => {
       console.error('Erro ao atualizar status do candidato:', error);
       if(profile) await fetchAllData(profile);
     }
-  }, [profile, fetchAllData, updateCandidateStatusInStore]);
+  }, [profile, fetchAllData, updateCandidateStatusInStore, candidates]);
+
+  // Funções para lidar com reprovação
+  const handleRejectionConfirm = async (reason: string) => {
+    if (!candidateToReject || !profile) return;
+    
+    setIsUpdatingStatus(true);
+    
+    try {
+      // Atualizar status no store
+      updateCandidateStatusInStore(candidateToReject.id, 'Reprovado');
+      
+      const response = await fetch(`${API_BASE_URL}/api/candidates/${candidateToReject.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: 'Reprovado',
+          motivo_reprova: reason,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Falha ao atualizar status no servidor');
+      }
+
+      // Fechar modal
+      setShowRejectionModal(false);
+      setCandidateToReject(null);
+      
+      // Refresh data
+      if (profile) await fetchAllData(profile);
+      
+    } catch (error) {
+      console.error('Erro ao reprovar candidato:', error);
+      // Reverter mudança no store em caso de erro
+      if (profile) await fetchAllData(profile);
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  const handleRejectionCancel = () => {
+    setShowRejectionModal(false);
+    setCandidateToReject(null);
+  };
   
   const handleScheduleSubmit = async (details: { start: Date; end: Date; title: string; details: string; saveToGoogle: boolean }) => {
     console.log('[DEBUG] handleScheduleSubmit chamado:', {
@@ -379,6 +442,15 @@ const ResultsPage: React.FC = () => {
           onClose={() => setIsVideoUploadModalOpen(false)}
           candidate={candidateForVideo}
           onVideoUploaded={handleVideoUploaded}
+        />
+      )}
+      {showRejectionModal && candidateToReject && (
+        <RejectionReasonModal
+          isOpen={showRejectionModal}
+          candidateName={candidateToReject.nome}
+          onConfirm={handleRejectionConfirm}
+          onCancel={handleRejectionCancel}
+          isLoading={isUpdatingStatus}
         />
       )}
     </>

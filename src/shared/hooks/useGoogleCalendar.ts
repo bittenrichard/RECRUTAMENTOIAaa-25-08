@@ -16,13 +16,19 @@ export const useGoogleCalendar = () => {
       return;
     }
 
+    // Evitar múltiplas requisições simultâneas
+    if (isLoading) {
+      console.log('[DEBUG] Already loading, skipping duplicate request');
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     
     try {
       console.log('[DEBUG] Fetching Google Calendar events for user:', profile.id);
       const events = await GoogleCalendarService.listEvents(profile.id);
-      console.log('[DEBUG] Google Calendar events fetched:', events);
+      console.log('[DEBUG] Google Calendar events fetched:', events.length, 'eventos');
       setGoogleEvents(events);
     } catch (error) {
       console.error('[DEBUG] Error fetching Google Calendar events:', error);
@@ -31,11 +37,18 @@ export const useGoogleCalendar = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [profile?.id]);
+  }, [profile?.id, isLoading]);
 
+  // Usar debounce para evitar muitas requisições
   useEffect(() => {
-    fetchGoogleCalendarEvents();
-  }, [fetchGoogleCalendarEvents]);
+    if (!profile?.id) return;
+
+    const timeoutId = setTimeout(() => {
+      fetchGoogleCalendarEvents();
+    }, 100); // Debounce reduzido para 100ms para responsividade
+
+    return () => clearTimeout(timeoutId);
+  }, [fetchGoogleCalendarEvents, profile?.id]);
 
   // Event listener para refresh quando eventos são criados
   useEffect(() => {

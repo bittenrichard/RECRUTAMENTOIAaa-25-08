@@ -31,6 +31,7 @@ interface Question {
   opcoes?: string[]; // Para múltipla escolha
   resposta_correta?: string; // Para verdadeiro/falso e múltipla escolha
   pontuacao: number;
+  dificuldade?: 'facil' | 'media' | 'dificil'; // Campo para controle de tempo
 }
 
 interface TestModel {
@@ -178,6 +179,30 @@ const oauth2Client = new google.auth.OAuth2(
   GOOGLE_CLIENT_SECRET,
   GOOGLE_REDIRECT_URI
 );
+
+// 🚀 SISTEMA DE CACHE para Google Calendar Events
+interface CacheEntry {
+  data: any;
+  timestamp: number;
+  userId: string;
+}
+
+const googleCalendarCache = new Map<string, CacheEntry>();
+const CACHE_TTL = 30 * 1000; // 30 segundos TTL
+
+// Função para limpar cache expirado
+const cleanExpiredCache = () => {
+  const now = Date.now();
+  for (const [key, entry] of googleCalendarCache.entries()) {
+    if (now - entry.timestamp > CACHE_TTL) {
+      googleCalendarCache.delete(key);
+      console.log(`[CACHE] Removida entrada expirada: ${key}`);
+    }
+  }
+};
+
+// Limpar cache automaticamente a cada 60 segundos
+setInterval(cleanExpiredCache, 60 * 1000);
 
 const USERS_TABLE_ID = '711';
 const VAGAS_TABLE_ID = '709';
@@ -614,7 +639,7 @@ app.patch('/api/candidates/:candidateId/status', async (req: Request, res: Respo
 
   // Validação com a nova lista de status do funil
   const validStatuses = [
-    'Triagem', 'Entrevista por Vídeo', 'Teste Teórico',
+    'Triagem', 'Entrevista por Vídeo', 'Teste Teórico', 'Entrevista Presencial',
     'Teste Prático', 'Contratado', 'Aprovado', 'Reprovado', 'Entrevista'
   ];
 
@@ -737,6 +762,29 @@ app.patch('/api/candidates/:candidateId/update-contact', async (req: Request, re
     } catch (error: any) {
         console.error('Erro ao atualizar data de contato:', error.message);
         res.status(500).json({ error: 'Falha ao atualizar data de contato.' });
+    }
+});
+
+// Rota genérica para atualizar dados de candidato
+app.patch('/api/candidates/:candidateId', async (req: Request, res: Response) => {
+    const { candidateId } = req.params;
+    const updateData = req.body;
+
+    try {
+        console.log(`[PATCH] Tentando atualizar candidato ID: ${candidateId}`, updateData);
+
+        // Usar o cliente Baserow para atualizar o candidato
+        const result = await baserowServer.patch(CANDIDATOS_TABLE_ID, parseInt(candidateId), updateData);
+
+        console.log(`[PATCH] Candidato atualizado com sucesso:`, result);
+        res.json({ success: true, data: result });
+    } catch (error) {
+        console.error(`[PATCH] Erro ao atualizar candidato ${candidateId}:`, error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Erro ao atualizar candidato',
+            details: error instanceof Error ? error.message : 'Erro desconhecido'
+        });
     }
 });
 
@@ -1590,8 +1638,18 @@ app.get('/api/google/calendar/event/:userId/:eventId', async (req: Request, res:
 // Endpoint para listar eventos do Google Calendar sincronizados
 app.get('/api/google/calendar/events/:userId', async (req: Request, res: Response) => {
   const { userId } = req.params;
+  const cacheKey = `google_events_${userId}`;
   
-  console.log(`[GOOGLE CALENDAR] Buscando eventos para userId: ${userId}`);
+  console.log(`[GOOGLE CALENDAR] 🚀 Buscando eventos para userId: ${userId}`);
+  
+  // 🎯 VERIFICAR CACHE PRIMEIRO
+  const cachedEntry = googleCalendarCache.get(cacheKey);
+  if (cachedEntry && (Date.now() - cachedEntry.timestamp) < CACHE_TTL) {
+    console.log(`[CACHE] ✅ HIT! Retornando ${cachedEntry.data.length} eventos em cache (${Math.round((Date.now() - cachedEntry.timestamp) / 1000)}s atrás)`);
+    return res.json({ success: true, events: cachedEntry.data, cached: true });
+  }
+  
+  console.log(`[CACHE] ❌ MISS. Buscando na API do Google...`);
   
   try {
     console.log(`[GOOGLE CALENDAR] Fazendo busca do usuário na tabela ${USERS_TABLE_ID}`);
@@ -1768,7 +1826,16 @@ app.get('/api/google/calendar/events/:userId', async (req: Request, res: Respons
     });
 
     console.log(`[GOOGLE CALENDAR] Retornando ${formattedEvents.length} eventos formatados`);
-    res.json({ success: true, events: formattedEvents });
+    
+    // 🚀 SALVAR NO CACHE para próximas requisições
+    googleCalendarCache.set(cacheKey, {
+      data: formattedEvents,
+      timestamp: Date.now(),
+      userId: userId
+    });
+    console.log(`[CACHE] ✅ SALVOU ${formattedEvents.length} eventos no cache (TTL: ${CACHE_TTL/1000}s)`);
+    
+    res.json({ success: true, events: formattedEvents, cached: false });
   } catch (error: any) {
     // 🚨 LOGS DETALHADOS para diagnóstico completo
     console.error(`[GOOGLE CALENDAR] ❌ ERRO DETALHADO para userId ${userId}:`, {
@@ -1871,9 +1938,13 @@ app.delete('/api/google/calendar/events/:eventId', async (req: Request, res: Res
   }
 });
 
-// Endpoint público para listar modelos de prova teórica (sem autenticação)
+// Endpoint público para listar modelos de prova teórica (com filtro por usuário)
 app.get('/api/public/theoretical-models', async (req: Request, res: Response) => {
   try {
+    // Pegar o ID do usuário dos headers
+    const userId = req.headers['x-user-id'] || req.query.userId || '1';
+    
+    console.log('🔍 [Public] Buscando modelos para usuário:', userId);
     console.log('🔍 [Public] Buscando modelos na tabela:', PROVAS_TEORICAS_MODELOS_TABLE_ID);
     const response = await baserowServer.get(PROVAS_TEORICAS_MODELOS_TABLE_ID);
     
@@ -1882,7 +1953,52 @@ app.get('/api/public/theoretical-models', async (req: Request, res: Response) =>
       return res.json({ success: true, data: [] });
     }
 
-    const models = response.results.map((model: any) => {      
+    // Filtrar modelos por usuário (isolamento SaaS) - versão mais permissiva para debug
+    const filteredResults = response.results.filter((model: any) => {
+      // 🎯 PRIMEIRO: Só modelos ATIVOS
+      if (!model.ativo) {
+        console.log(`❌ Modelo ${model.id} INATIVO - ignorando`);
+        return false;
+      }
+
+      // 🔍 SEGUNDO: Verificar propriedade do modelo
+      let modelOwner = model.criado_por;
+      
+      console.log(`🔎 DEBUG modelo ${model.id}: criado_por raw=`, JSON.stringify(modelOwner));
+      
+      // Se criado_por é um array (relacionamento do Baserow), pegar o primeiro
+      if (Array.isArray(modelOwner) && modelOwner.length > 0) {
+        modelOwner = modelOwner[0].id || modelOwner[0].value || modelOwner[0];
+      }
+      // Se criado_por é um objeto, extrair o ID
+      else if (typeof modelOwner === 'object' && modelOwner !== null) {
+        modelOwner = modelOwner.id || modelOwner.value || 1;
+      }
+      
+      // Default para usuário 1 se não tem proprietário definido
+      if (!modelOwner || modelOwner === '') {
+        modelOwner = 1;
+      }
+      
+      console.log(`🔎 DEBUG modelo ${model.id}: criado_por final=${modelOwner}`);
+      
+      console.log(`🔍 Modelo ${model.id}: criado_por=${modelOwner}, userId=${userId}, ativo=${model.ativo}`);
+      
+      // 🎯 LÓGICA CORRIGIDA: Usuário 2 é SUPER ADMIN mas só vê suas próprias provas
+      // Usuário 2 (SUPER ADMIN/Template Creator): Vê apenas SEUS próprios modelos
+      if (String(userId) === '2') {
+        const canAccess = String(modelOwner) === '2';
+        console.log(`👑 SUPER ADMIN (User 2) - Modelo ${model.id}: canAccess=${canAccess} (só próprios modelos)`);
+        return canAccess;
+      }
+      
+      // Outros usuários veem seus próprios modelos + templates do usuário 2 (SUPER ADMIN)
+      const canAccess = String(modelOwner) === String(userId) || String(modelOwner) === '2';
+      console.log(`🔍 Modelo ${model.id}: canAccess=${canAccess} (próprios + templates User 2)`);
+      return canAccess;
+    });
+
+    const models = filteredResults.map((model: any) => {      
       let questoes = [];
       try {
         questoes = model.perguntas ? JSON.parse(model.perguntas) : [];
@@ -2335,6 +2451,9 @@ app.delete('/api/theoretical-test/cancel/:testId', async (req: Request, res: Res
 app.get('/api/theoretical-test/check/:candidateId', async (req: Request, res: Response) => {
   const { candidateId } = req.params;
   
+  // Pegar o ID do usuário dos headers
+  const userId = req.headers['x-user-id'] || req.query.userId || '1';
+  
   if (!candidateId) {
     return res.status(400).json({ error: 'ID do candidato é obrigatório.' });
   }
@@ -2344,7 +2463,7 @@ app.get('/api/theoretical-test/check/:candidateId', async (req: Request, res: Re
     
     const { results: existingTests } = await baserowServer.get(
       PROVAS_TEORICAS_APLICADAS_TABLE_ID,
-      `?filter__candidato=${candidateId}&filter__status=true`
+      `?filter__candidato=${candidateId}&filter__recrutador=${userId}&filter__status=true`
     );
     
     if (existingTests && existingTests.length > 0) {
@@ -2387,32 +2506,162 @@ app.get('/api/theoretical-test/check/:candidateId', async (req: Request, res: Re
 
 // ========================================
 // ENDPOINTS - SISTEMA DE PROVAS TEÓRICAS
-// ========================================// GET /api/theoretical-models - Listar modelos de prova do usuário + modelos públicos do usuário ID 1
+// ========================================
+
+// GET /api/theoretical-templates - Listar apenas templates disponíveis para duplicação
+app.get('/api/theoretical-templates', async (req: Request, res: Response) => {
+  try {
+    console.log('🎯 Buscando templates de prova teórica');
+    const response = await baserowServer.get(PROVAS_TEORICAS_MODELOS_TABLE_ID);
+    
+    if (!response.results || !Array.isArray(response.results)) {
+      return res.json({ success: true, data: [] });
+    }
+
+    // Filtrar apenas modelos que são templates (criado_por = 2)
+    console.log(`📋 Total de modelos encontrados: ${response.results.length}`);
+    
+    const templates = response.results.filter((model: any) => {
+      // Verificar se criado_por é objeto ou array (relacionamento Baserow)
+      let modelOwner = model.criado_por;
+      
+      console.log(`🔎 DEBUG TEMPLATE modelo ${model.id}: criado_por raw=`, JSON.stringify(modelOwner));
+      
+      // Se criado_por é um array (relacionamento do Baserow), pegar o primeiro
+      if (Array.isArray(modelOwner) && modelOwner.length > 0) {
+        modelOwner = modelOwner[0].id || modelOwner[0].value || modelOwner[0];
+      }
+      // Se criado_por é um objeto, extrair o ID
+      else if (typeof modelOwner === 'object' && modelOwner !== null) {
+        modelOwner = modelOwner.id || modelOwner.value || 2;
+      }
+      
+      if (!modelOwner || modelOwner === '') {
+        modelOwner = 2; // Padrão usuário 2 para templates
+      }
+      
+      console.log(`🔎 DEBUG TEMPLATE modelo ${model.id}: criado_por final=${modelOwner}`);
+
+      const isActive = model.ativo;
+      const isFromTemplateUser = String(modelOwner) === '2';
+      
+      console.log(`🔍 Modelo ${model.id}: titulo="${model.titulo}", ativo=${isActive}, criado_por=${modelOwner}, é_template=${isFromTemplateUser}`);
+      
+      // Só mostrar templates ativos do usuário 2 (criador de templates)
+      return isActive && isFromTemplateUser;
+    }).map((model: any) => {
+      let questoes = [];
+      try {
+        questoes = model.perguntas ? JSON.parse(model.perguntas) : [];
+      } catch (parseError) {
+        console.error('Erro ao processar JSON das questões:', parseError);
+        questoes = [];
+      }
+
+      return {
+        id: model.id,
+        nome: model.titulo,
+        descricao: model.descricao,
+        tempo_limite: model.tempo_limite,
+        total_questoes: questoes.length,
+        questoes: questoes,
+        is_template: true,
+        created_at: model.created_at,
+        updated_at: model.updated_at
+      };
+    });
+
+    console.log(`✅ Templates encontrados: ${templates.length}`);
+    templates.forEach(template => {
+      console.log(`📝 Template: ID=${template.id}, Nome="${template.nome}", Questões=${template.total_questoes}`);
+    });
+    res.json({ success: true, data: templates });
+  } catch (error: any) {
+    console.error('Erro ao buscar templates:', error);
+    res.status(500).json({ error: 'Erro ao carregar templates de prova teórica.' });
+  }
+});
+
+// POST /api/theoretical-templates/:templateId/duplicate - Duplicar template para usuário
+app.post('/api/theoretical-templates/:templateId/duplicate', async (req: Request, res: Response) => {
+  try {
+    const { templateId } = req.params;
+    const { userId, customName, customDescription } = req.body;
+    
+    console.log(`🎯 Duplicando template ${templateId} para usuário ${userId}`);
+    
+    // Buscar o template original
+    const templateResponse = await baserowServer.getRow(PROVAS_TEORICAS_MODELOS_TABLE_ID, parseInt(templateId));
+    
+    if (!templateResponse) {
+      return res.status(404).json({ error: 'Template não encontrado.' });
+    }
+
+    // Criar novo modelo baseado no template
+    const newModelData = {
+      titulo: customName || `${templateResponse.titulo} - Cópia`,
+      descricao: customDescription || templateResponse.descricao,
+      tempo_limite: templateResponse.tempo_limite,
+      perguntas: templateResponse.perguntas, // Manter as mesmas questões
+      ativo: true, // Novo modelo ativo por padrão
+      criado_por: parseInt(userId), // Definir o usuário como proprietário
+      template_original: parseInt(templateId) // Referenciar o template original
+    };
+
+    console.log('🏗️ Criando modelo duplicado:', newModelData);
+    const createdModel = await baserowServer.post(PROVAS_TEORICAS_MODELOS_TABLE_ID, newModelData);
+    
+    console.log('✅ Template duplicado com sucesso:', createdModel.id);
+    res.json({ 
+      success: true, 
+      data: {
+        id: createdModel.id,
+        nome: createdModel.titulo,
+        descricao: createdModel.descricao,
+        message: 'Template duplicado com sucesso!'
+      }
+    });
+  } catch (error: any) {
+    console.error('Erro ao duplicar template:', error);
+    res.status(500).json({ error: 'Erro ao duplicar template.' });
+  }
+});
+
+// GET /api/theoretical-models - Listar APENAS modelos do próprio usuário (não templates)
 app.get('/api/theoretical-models', async (req: Request, res: Response) => {
   try {
     // Pegar o ID do usuário dos headers ou query params
-    const userId = req.headers['x-user-id'] || req.query.userId || '2'; // Default para usuário 2
+    const userId = req.headers['x-user-id'] || req.query.userId || '1'; // Default correto
     
-    console.log('🔍 Buscando modelos para usuário:', userId);
+    console.log('🔍 Buscando modelos próprios para usuário:', userId);
+    console.log('🔍 Este endpoint deve mostrar modelos criados/duplicados pelo usuário');
     console.log('🔍 Buscando modelos na tabela:', PROVAS_TEORICAS_MODELOS_TABLE_ID);
     
     // Buscar todos os modelos e filtrar no backend
     const response = await baserowServer.get(PROVAS_TEORICAS_MODELOS_TABLE_ID);
-    console.log('📊 Resposta do Baserow:', JSON.stringify(response, null, 2));
     
     if (!response.results || !Array.isArray(response.results)) {
       console.log('⚠️ Nenhum resultado encontrado ou formato inválido');
       return res.json({ success: true, data: [] });
     }
 
+    // 🎯 NOVO FILTRO: Apenas modelos do próprio usuário (não templates)
     const filteredResults = response.results.filter((model: any) => {
-      const modelOwner = model.criado_por || 1; // Default para usuário 1
-      // Se é usuário 1, vê apenas seus modelos
-      if (String(userId) === '1') {
-        return String(modelOwner) === '1';
+      // Verificar se criado_por é objeto
+      let modelOwner = model.criado_por;
+      if (typeof modelOwner === 'object' && modelOwner !== null) {
+        modelOwner = modelOwner.id || modelOwner.value || null;
       }
-      // Outros usuários veem seus próprios modelos + modelos do usuário 1
-      return String(modelOwner) === String(userId) || String(modelOwner) === '1';
+      
+      console.log(`🔍 Modelo ${model.id}: criado_por=${modelOwner}, userId=${userId}, ativo=${model.ativo}`);
+      
+      // Template creator (usuário 2) vê todos os modelos
+      if (String(userId) === '2') {
+        return true;
+      }
+      
+      // Usuários normais veem APENAS seus próprios modelos (não templates do sistema)
+      return modelOwner && String(modelOwner) === String(userId);
     });
 
     const models = filteredResults.map((model: any) => {
@@ -2440,7 +2689,7 @@ app.get('/api/theoretical-models', async (req: Request, res: Response) => {
         questoes: questoes,
         ativo: model.ativo,
         criado_por: model.criado_por || 1, // Incluir info do criador
-        is_template: (model.criado_por || 1) === 1, // Marcar se é template (do usuário 1)
+        is_template: (model.criado_por || 2) === 2, // Marcar se é template (do usuário 2)
         created_at: model.created_at || null,
         updated_at: model.updated_at || null
       };
@@ -2698,7 +2947,7 @@ app.delete('/api/theoretical-models/:id', async (req: Request, res: Response) =>
     }
     
     // Verificar se o usuário pode excluir este modelo
-    const modelOwner = existingModel.criado_por || 1; // Default para usuário 1 se não tiver o campo
+    const modelOwner = existingModel.criado_por || 2; // Default para usuário 2 se não tiver o campo
     if (String(modelOwner) !== String(userId)) {
       console.log(`❌ Usuário ${userId} não pode excluir modelo do usuário ${modelOwner}`);
       return res.status(403).json({ 
@@ -2868,11 +3117,14 @@ app.post('/api/theoretical-test/generate', async (req: Request, res: Response) =
 // GET /api/theoretical-test/:candidateId - Buscar prova em andamento do candidato
 app.get('/api/theoretical-test/:candidateId', async (req: Request, res: Response) => {
   const { candidateId } = req.params;
+  
+  // Pegar o ID do usuário dos headers
+  const userId = req.headers['x-user-id'] || req.query.userId || '1';
 
   try {
     const { results } = await baserowServer.get(
       PROVAS_TEORICAS_APLICADAS_TABLE_ID,
-      `?filter__candidato=${candidateId}`
+      `?filter__candidato=${candidateId}&filter__recrutador=${userId}`
     );
 
     if (!results || results.length === 0) {
@@ -3042,19 +3294,42 @@ app.put('/api/theoretical-test/:testId/submit', async (req: Request, res: Respon
 // GET /api/theoretical-test/results/:candidateId - Buscar resultados das provas do candidato
 app.get('/api/theoretical-test/results/:candidateId', async (req: Request, res: Response) => {
   const { candidateId } = req.params;
+  
+  // Pegar o ID do usuário dos headers
+  const userId = req.headers['x-user-id'] || req.query.userId || '1';
 
   try {
-    // Buscar provas do candidato usando o campo de Link correto
-    const { results } = await baserowServer.get(
+    console.log(`🔍 Buscando provas para candidato ${candidateId} do usuário ${userId}`);
+    
+    // 🔒 BUSCAR PROVAS COM ISOLAMENTO DUPLO: candidato + recrutador
+    const allResults = await baserowServer.get(
       PROVAS_TEORICAS_APLICADAS_TABLE_ID,
-      `?filter__candidato=${candidateId}&order_by=-data_de_resposta`
+      `?filter__candidato=${candidateId}&filter__recrutador=${userId}&order_by=-data_de_resposta`
     );
 
-    if (!results || results.length === 0) {
+    // ✅ PROVAS JÁ FILTRADAS NA QUERY - mas adicionar verificação extra por segurança
+    const results = allResults.results || [];
+    
+    // 🔒 VERIFICAÇÃO ADICIONAL DE SEGURANÇA - garantir isolamento SaaS
+    const filteredResults = results.filter((test: any) => {
+      const testRecruiter = test.recrutador;
+      const isValid = String(testRecruiter) === String(userId);
+      console.log(`🔍 Prova ${test.id}: candidato=${candidateId}, recrutador=${testRecruiter}, userId=${userId}, válida=${isValid}`);
+      return isValid;
+    });
+    
+    if (filteredResults.length !== results.length) {
+      console.log(`⚠️ ALERTA SEGURANÇA: ${results.length - filteredResults.length} provas filtradas por isolamento`);
+    }
+
+    console.log(`📊 Encontradas ${filteredResults?.length || 0} provas para candidato ${candidateId}`);
+
+    if (!filteredResults || filteredResults.length === 0) {
+      console.log(`✅ Nenhuma prova encontrada - retornando array vazio`);
       return res.json({ success: true, data: [] });
     }
 
-    const formattedResults = await Promise.all(results.map(async (test: {
+    const formattedResults = await Promise.all(filteredResults.map(async (test: {
       id: number;
       modelo_da_prova: any[];
       pontuacao_total?: number;
@@ -3094,11 +3369,14 @@ app.get('/api/theoretical-test/results/:candidateId', async (req: Request, res: 
 app.delete('/api/theoretical-test/:candidateId/cancel', async (req: Request, res: Response) => {
   try {
     const { candidateId } = req.params;
+    
+    // Pegar o ID do usuário dos headers
+    const userId = req.headers['x-user-id'] || req.query.userId || '1';
 
-    // Buscar prova em andamento
+    // Buscar prova em andamento filtrando por usuário
     const { results: existingTests } = await baserowServer.get(
       PROVAS_TEORICAS_APLICADAS_TABLE_ID, 
-      `?filter__candidato=${candidateId}`
+      `?filter__candidato=${candidateId}&filter__recrutador=${userId}`
     );
 
     if (!existingTests || existingTests.length === 0) {
@@ -3277,9 +3555,12 @@ app.get('/api/theoretical-test/review/:testId', async (req: Request, res: Respon
 app.get('/api/theoretical-test-results/:candidateId', async (req: Request, res: Response) => {
   try {
     const { candidateId } = req.params;
+    
+    // Pegar o ID do usuário dos headers
+    const userId = req.headers['x-user-id'] || req.query.userId || '1';
 
-    // Buscar todas as provas do candidato
-    const response = await baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}`);
+    // Buscar todas as provas do candidato filtrando por usuário
+    const response = await baserowServer.get(PROVAS_TEORICAS_APLICADAS_TABLE_ID, `?filter__candidato=${candidateId}&filter__recrutador=${userId}`);
     
     if (!response.results || !Array.isArray(response.results)) {
       return res.json({ success: true, data: [] });

@@ -190,8 +190,8 @@ const CandidateDatabasePage: React.FC = () => {
                                                 <td className="px-4 py-4 text-gray-600">{candidate.vaga && candidate.vaga[0] ? candidate.vaga[0].value : 'N/A'}</td>
                                                 <td className="px-4 py-4 font-bold text-indigo-600">{candidate.score || 0}%</td>
                                                 <td className="px-4 py-4 text-gray-600">
-                                                    {candidate.criado_em 
-                                                        ? new Date(candidate.criado_em).toLocaleDateString('pt-BR')
+                                                    {candidate.data_triagem 
+                                                        ? new Date(candidate.data_triagem).toLocaleDateString('pt-BR')
                                                         : 'Não informado'
                                                     }
                                                 </td>

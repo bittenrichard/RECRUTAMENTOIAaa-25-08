@@ -1,6 +1,6 @@
 // Tipos para melhorias do banco de talentos e vídeo de entrevista
 
-export type CandidateStatus = 'Triagem' | 'Entrevista' | 'Entrevista por Vídeo' | 'Teste Teórico' | 'Teste Prático' | 'Aprovado' | 'Contratado' | 'Reprovado';
+export type CandidateStatus = 'Triagem' | 'Entrevista' | 'Entrevista por Vídeo' | 'Teste Teórico' | 'Entrevista Presencial' | 'Teste Prático' | 'Aprovado' | 'Contratado' | 'Reprovado';
 
 export interface CandidateVideo {
   name: string; // Nome do arquivo
@@ -45,6 +45,9 @@ export interface Candidate {
   escolaridade?: string;
   idade?: number;
   criado_em?: string; // Data de criação/entrada no banco de talentos
+  // Novos campos para entrevista e reprovação
+  notas_entrevista?: string; // Anotações sobre o candidato na entrevista
+  motivo_reprova?: string; // Motivo da reprovação quando status for "Reprovado"
   // Outros campos que podem existir
   value?: string; // usado em alguns contextos
 }
@@ -69,6 +72,7 @@ export interface Question {
   resposta_correta?: string; // Para verdadeiro/falso e múltipla escolha
   resposta_esperada?: string; // Para questões dissertativas
   pontuacao: number;
+  dificuldade?: 'facil' | 'media' | 'dificil';
 }
 
 export interface TestModel {
@@ -79,7 +83,7 @@ export interface TestModel {
   questoes: Question[];
   ativo: boolean;
   criado_por?: number; // ID do usuário que criou o modelo
-  is_template?: boolean; // true se for um template (criado pelo usuário 1)
+  is_template?: boolean; // true se for um template (criado pelo usuário 2)
   created_at?: string;
   updated_at?: string;
 }

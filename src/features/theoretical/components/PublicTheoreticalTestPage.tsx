@@ -12,6 +12,7 @@ interface Question {
   enunciado: string;
   opcoes?: string[];
   pontuacao: number;
+  dificuldade?: 'facil' | 'media' | 'dificil';
 }
 
 interface TestData {
@@ -40,6 +41,8 @@ const PublicTheoreticalTestPage: React.FC<Props> = ({ testId: propTestId }) => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(0); // Tempo restante em segundos
+  const [isTimeUp, setIsTimeUp] = useState(false);
 
   // Fetch test data
   const fetchTestData = useCallback(async () => {
@@ -75,7 +78,69 @@ const PublicTheoreticalTestPage: React.FC<Props> = ({ testId: propTestId }) => {
     fetchTestData();
   }, [fetchTestData]);
 
+  // Função para obter tempo baseado na dificuldade
+  const getTimeForDifficulty = (dificuldade?: string): number => {
+    switch (dificuldade) {
+      case 'facil': return 30; // 30 segundos
+      case 'media': return 45; // 45 segundos
+      case 'dificil': return 60; // 1 minuto
+      default: return 45; // padrão médio
+    }
+  };
 
+  // Inicializar timer para a pergunta atual
+  const initializeQuestionTimer = useCallback(() => {
+    if (!testData?.modelo_prova.questoes[currentQuestionIndex]) return;
+    
+    const currentQuestion = testData.modelo_prova.questoes[currentQuestionIndex];
+    const questionTime = getTimeForDifficulty(currentQuestion.dificuldade);
+    
+    setTimeLeft(questionTime);
+    setIsTimeUp(false);
+  }, [testData, currentQuestionIndex]);
+
+  // Timer effect - continua rodando mesmo após resposta para evitar pesquisas
+  useEffect(() => {
+    if (step !== 2 || isTimeUp) return;
+
+    const timer = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          setIsTimeUp(true);
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [step, isTimeUp]);
+
+  // Inicializar timer quando mudar de pergunta
+  useEffect(() => {
+    if (step === 2) {
+      initializeQuestionTimer();
+    }
+  }, [step, currentQuestionIndex, initializeQuestionTimer]);
+
+  // Avançar automaticamente quando o tempo acabar
+  useEffect(() => {
+    if (isTimeUp && step === 2) {
+      // Se o tempo acabou, sempre avançar para a PRÓXIMA pergunta em sequência
+      const timer = setTimeout(() => {
+        const nextIndex = currentQuestionIndex + 1;
+        if (nextIndex < (testData?.modelo_prova.questoes.length || 0)) {
+          setCurrentQuestionIndex(nextIndex);
+        } else {
+          // Se é a última pergunta, finalizar automaticamente
+          setStep(3);
+        }
+      }, 1000); // Delay de 1 segundo
+      
+      return () => clearTimeout(timer);
+    }
+  }, [isTimeUp, step, currentQuestionIndex, testData]);
 
   const handleStartTest = () => {
     setStep(2);
@@ -88,6 +153,13 @@ const PublicTheoreticalTestPage: React.FC<Props> = ({ testId: propTestId }) => {
     }));
   };
 
+  // Função para avançar manualmente (permite avançar mesmo sem responder)
+  const handleNextQuestion = () => {
+    if (currentQuestionIndex < (testData?.modelo_prova.questoes.length || 0) - 1) {
+      setCurrentQuestionIndex(prev => prev + 1);
+    }
+  };
+
   const handleSubmitTest = useCallback(async () => {
     // Validar se todas as questões foram respondidas
     if (!testData?.modelo_prova?.questoes) {
@@ -96,20 +168,8 @@ const PublicTheoreticalTestPage: React.FC<Props> = ({ testId: propTestId }) => {
       return;
     }
 
-    const totalQuestions = testData.modelo_prova.questoes.length;
-    const answeredQuestions = Object.keys(answers).length;
-    
-    if (answeredQuestions < totalQuestions) {
-      setError(`Você deve responder todas as ${totalQuestions} questões antes de finalizar a prova. Questões respondidas: ${answeredQuestions}/${totalQuestions}`);
-      return;
-    }
-
-    // Verificar se alguma resposta está vazia
-    const emptyAnswers = testData.modelo_prova.questoes.filter(q => !answers[q.id] || answers[q.id].trim() === '');
-    if (emptyAnswers.length > 0) {
-      setError(`Existem ${emptyAnswers.length} questões sem resposta. Por favor, responda todas as questões antes de finalizar.`);
-      return;
-    }
+    // Permitir finalizar mesmo com perguntas não respondidas
+    // Respostas em branco serão consideradas erradas na correção
 
     setIsSubmitting(true);
     try {
@@ -160,17 +220,29 @@ const PublicTheoreticalTestPage: React.FC<Props> = ({ testId: propTestId }) => {
               </div>
             </li>
             <li className="flex items-start gap-3">
-              <CheckCircle size={16} className="text-green-500 mt-0.5 flex-shrink-0" />
+              <AlertCircle size={16} className="text-yellow-500 mt-0.5 flex-shrink-0" />
               <div>
-                Você pode navegar entre as questões e alterar suas respostas até submeter o teste.
+                <strong>Tempo por pergunta:</strong> Cada pergunta tem um tempo limitado baseado na dificuldade:
+                <ul className="ml-4 mt-2 space-y-1 text-sm">
+                  <li>• <span className="text-green-600 font-medium">Fácil:</span> 30 segundos</li>
+                  <li>• <span className="text-yellow-600 font-medium">Média:</span> 45 segundos</li>
+                  <li>• <span className="text-red-600 font-medium">Difícil:</span> 60 segundos</li>
+                </ul>
               </div>
             </li>
             <li className="flex items-start gap-3">
-              <AlertCircle size={16} className="text-blue-500 mt-0.5 flex-shrink-0" />
+              <AlertCircle size={16} className="text-orange-500 mt-0.5 flex-shrink-0" />
               <div>
-                Leia cada questão com atenção e responda de forma clara e objetiva.
+                <strong>Navegação:</strong> Você pode avançar manualmente clicando em "Próxima" a qualquer momento. Se não responder, a questão será considerada errada.
               </div>
             </li>
+            <li className="flex items-start gap-3">
+              <CheckCircle size={16} className="text-green-500 mt-0.5 flex-shrink-0" />
+              <div>
+                <strong>Tempo esgotado:</strong> Se o tempo esgotar, você avançará automaticamente para a próxima pergunta.
+              </div>
+            </li>
+
           </ul>
         </div>
 
@@ -193,19 +265,65 @@ const PublicTheoreticalTestPage: React.FC<Props> = ({ testId: propTestId }) => {
 
     return (
       <div className="max-w-4xl mx-auto">
-        {/* Header with progress */}
-        <div className="bg-white border border-gray-200 rounded-lg p-4 mb-6 flex justify-center items-center">
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-600">
-              Questão {currentQuestionIndex + 1} de {testData.modelo_prova.questoes.length}
-            </span>
-            <div className="w-64 bg-gray-200 rounded-full h-2">
-              <div 
-                className="bg-blue-500 h-2 rounded-full transition-all"
-                style={{ width: `${((currentQuestionIndex + 1) / testData.modelo_prova.questoes.length) * 100}%` }}
-              />
+        {/* Header with progress and timer */}
+        <div className="bg-white border border-gray-200 rounded-lg p-4 mb-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-gray-600">
+                Questão {currentQuestionIndex + 1} de {testData.modelo_prova.questoes.length}
+              </span>
+              <div className="w-64 bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-blue-500 h-2 rounded-full transition-all"
+                  style={{ width: `${((currentQuestionIndex + 1) / testData.modelo_prova.questoes.length) * 100}%` }}
+                />
+              </div>
+            </div>
+            
+            {/* Timer */}
+            <div className="flex items-center gap-3">
+              <div className={`text-sm font-semibold px-3 py-1 rounded-full ${
+                timeLeft <= 10 
+                  ? 'bg-red-100 text-red-800' 
+                  : timeLeft <= 20 
+                    ? 'bg-yellow-100 text-yellow-800' 
+                    : 'bg-green-100 text-green-800'
+              }`}>
+                ⏱️ {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+              </div>
+              <div className="text-xs text-gray-500">
+                {question.dificuldade ? (
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                    question.dificuldade === 'facil' 
+                      ? 'bg-green-100 text-green-700'
+                      : question.dificuldade === 'media'
+                        ? 'bg-yellow-100 text-yellow-700'
+                        : 'bg-red-100 text-red-700'
+                  }`}>
+                    {question.dificuldade === 'facil' ? 'Fácil' : question.dificuldade === 'media' ? 'Média' : 'Difícil'}
+                  </span>
+                ) : (
+                  <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-700">
+                    Média
+                  </span>
+                )}
+              </div>
             </div>
           </div>
+          
+          {/* Aviso de tempo esgotado */}
+          {isTimeUp && (
+            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-md">
+              <div className="flex items-center gap-2">
+                <AlertCircle size={16} className="text-red-600" />
+                <span className="text-sm text-red-700 font-medium">
+                  Tempo esgotado! Avançando para a próxima pergunta...
+                </span>
+              </div>
+            </div>
+          )}
+          
+
         </div>
 
         {/* Question content */}
@@ -277,7 +395,7 @@ const PublicTheoreticalTestPage: React.FC<Props> = ({ testId: propTestId }) => {
 
           {currentQuestionIndex < testData.modelo_prova.questoes.length - 1 ? (
             <button
-              onClick={() => setCurrentQuestionIndex(prev => prev + 1)}
+              onClick={handleNextQuestion}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
             >
               Próxima
