@@ -1,6 +1,6 @@
 // Local: src/shared/hooks/useGoogleCalendar.ts
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { GoogleCalendarEvent, GoogleCalendarService } from '../services/googleCalendarService';
 import { useAuth } from '../../features/auth/hooks/useAuth';
 
@@ -9,6 +9,7 @@ export const useGoogleCalendar = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { profile } = useAuth();
+  const isFetchingRef = useRef(false);
 
   const fetchGoogleCalendarEvents = useCallback(async () => {
     if (!profile?.id) {
@@ -16,12 +17,13 @@ export const useGoogleCalendar = () => {
       return;
     }
 
-    // Evitar múltiplas requisições simultâneas
-    if (isLoading) {
-      console.log('[DEBUG] Already loading, skipping duplicate request');
+    // Evitar múltiplas requisições simultâneas usando ref
+    if (isFetchingRef.current) {
+      console.log('[DEBUG] Already fetching, skipping duplicate request');
       return;
     }
 
+    isFetchingRef.current = true;
     setIsLoading(true);
     setError(null);
     
@@ -36,8 +38,9 @@ export const useGoogleCalendar = () => {
       setGoogleEvents([]);
     } finally {
       setIsLoading(false);
+      isFetchingRef.current = false;
     }
-  }, [profile?.id, isLoading]);
+  }, [profile?.id]); // Removido isLoading da dependência
 
   // Usar debounce para evitar muitas requisições
   useEffect(() => {
@@ -45,7 +48,7 @@ export const useGoogleCalendar = () => {
 
     const timeoutId = setTimeout(() => {
       fetchGoogleCalendarEvents();
-    }, 100); // Debounce reduzido para 100ms para responsividade
+    }, 500); // Aumentado para 500ms para reduzir requests duplicados
 
     return () => clearTimeout(timeoutId);
   }, [fetchGoogleCalendarEvents, profile?.id]);

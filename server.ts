@@ -223,6 +223,12 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'https://recrutamentoia.com.br'
 interface BaserowJobPosting {
   id: number;
   titulo: string;
+  descricao?: string;
+  endereco?: string;
+  requisitos_json?: string;
+  requisitos_obrigatorios?: string;
+  requisitos_desejaveis?: string;
+  criado_em?: string;
   usuario?: { id: number; value: string }[];
 }
 
@@ -541,15 +547,23 @@ app.post('/api/jobs', async (req: Request, res: Response) => {
   console.log('[POST /api/jobs] === INICIO DA REQUISIÇÃO ===');
   console.log('[POST /api/jobs] Body recebido:', JSON.stringify(req.body, null, 2));
   
-  const { titulo, descricao, endereco, requisitos_obrigatorios, requisitos_desejaveis, usuario } = req.body;
+  const { 
+    titulo, 
+    descricao, 
+    endereco, 
+    modo_trabalho,
+    requisitos_json, 
+    requisitos_obrigatorios, 
+    requisitos_desejaveis, 
+    usuario 
+  } = req.body;
   
   console.log('[POST /api/jobs] Campos extraídos:');
   console.log('[POST /api/jobs] - titulo:', titulo);
   console.log('[POST /api/jobs] - descricao:', descricao);
+  console.log('[POST /api/jobs] - modo_trabalho:', modo_trabalho);
+  console.log('[POST /api/jobs] - requisitos_json:', requisitos_json ? 'PRESENTE' : 'AUSENTE');
   console.log('[POST /api/jobs] - usuario:', usuario);
-  console.log('[POST /api/jobs] - typeof usuario:', typeof usuario);
-  console.log('[POST /api/jobs] - Array.isArray(usuario):', Array.isArray(usuario));
-  console.log('[POST /api/jobs] - usuario.length:', usuario?.length);
   
   if (!titulo || !descricao || !usuario || usuario.length === 0) {
     console.log('[POST /api/jobs] ERRO: Validação falhou');
@@ -557,33 +571,139 @@ app.post('/api/jobs', async (req: Request, res: Response) => {
   }
 
   try {
-    const createdJob = await baserowServer.post(VAGAS_TABLE_ID, {
+    // Preparar dados para envio ao Baserow
+    const jobData: any = {
       titulo,
       descricao,
       Endereco: endereco,
-      requisitos_obrigatorios,
-      requisitos_desejaveis,
       usuario,
-    });
+    };
+
+    // Processar requisitos_json e incluir modo_trabalho
+    let requisitosData: any = {};
+    
+    if (requisitos_json) {
+      try {
+        requisitosData = JSON.parse(requisitos_json);
+      } catch (error) {
+        console.warn('[POST /api/jobs] Erro ao parsear requisitos_json:', error);
+        requisitosData = {};
+      }
+    }
+    
+    // Adicionar modo_trabalho aos requisitos
+    if (modo_trabalho) {
+      requisitosData.modo_trabalho = modo_trabalho;
+      console.log('[POST /api/jobs] ✅ ADICIONANDO modo_trabalho aos requisitos:', modo_trabalho);
+    }
+    
+    // Salvar requisitos_json completo
+    if (Object.keys(requisitosData).length > 0) {
+      jobData.requisitos_json = JSON.stringify(requisitosData);
+      console.log('[POST /api/jobs] ✅ SALVANDO requisitos_json:', JSON.stringify(requisitosData, null, 2));
+    }
+
+    // Manter compatibilidade com campos antigos
+    if (requisitos_obrigatorios) {
+      jobData.requisitos_obrigatorios = requisitos_obrigatorios;
+    }
+    if (requisitos_desejaveis) {
+      jobData.requisitos_desejaveis = requisitos_desejaveis;
+    }
+
+    const createdJob = await baserowServer.post(VAGAS_TABLE_ID, jobData);
+    console.log('[POST /api/jobs] ✅ Vaga criada com sucesso:', createdJob.id);
     res.status(201).json(createdJob);
   } catch (error: any) {
-    console.error('Erro ao criar vaga (backend):', error);
+    console.error('[POST /api/jobs] ❌ Erro ao criar vaga:', error);
     res.status(500).json({ error: 'Não foi possível criar a vaga.' });
   }
 });
 
 app.patch('/api/jobs/:jobId', async (req: Request, res: Response) => {
   const { jobId } = req.params;
-  const updatedData = req.body;
-  if (!jobId || Object.keys(updatedData).length === 0) {
+  console.log('[PATCH /api/jobs] === INICIO DA ATUALIZAÇÃO ===');
+  console.log('[PATCH /api/jobs] Job ID:', jobId);
+  console.log('[PATCH /api/jobs] Body recebido:', JSON.stringify(req.body, null, 2));
+  
+  const { 
+    titulo, 
+    descricao, 
+    endereco, 
+    modo_trabalho,
+    requisitos_json, 
+    requisitos_obrigatorios, 
+    requisitos_desejaveis 
+  } = req.body;
+  
+  if (!jobId || Object.keys(req.body).length === 0) {
     return res.status(400).json({ error: 'ID da vaga e dados para atualização são obrigatórios.' });
   }
 
   try {
-    const updatedJob = await baserowServer.patch(VAGAS_TABLE_ID, parseInt(jobId), updatedData);
+    // Preparar dados para atualização
+    const updateData: any = {};
+
+    // Adicionar campos básicos se fornecidos
+    if (titulo !== undefined) updateData.titulo = titulo;
+    if (descricao !== undefined) updateData.descricao = descricao;
+    if (endereco !== undefined) updateData.Endereco = endereco;
+
+    // Processar requisitos_json e modo_trabalho
+    if (requisitos_json !== undefined || modo_trabalho !== undefined) {
+      let requisitosData: any = {};
+      
+      // Se há requisitos_json, usar como base
+      if (requisitos_json) {
+        try {
+          requisitosData = JSON.parse(requisitos_json);
+        } catch (error) {
+          console.warn('[PATCH /api/jobs] Erro ao parsear requisitos_json:', error);
+          requisitosData = {};
+        }
+      } else {
+        // Se não há requisitos_json mas há modo_trabalho, buscar requisitos existentes
+        try {
+          const existingJob = await baserowServer.getRow(VAGAS_TABLE_ID, parseInt(jobId));
+          if (existingJob && existingJob.requisitos_json) {
+            try {
+              requisitosData = JSON.parse(existingJob.requisitos_json);
+            } catch (error) {
+              console.warn('[PATCH /api/jobs] Erro ao parsear requisitos existentes:', error);
+              requisitosData = {};
+            }
+          }
+        } catch (error) {
+          console.warn('[PATCH /api/jobs] Erro ao buscar job existente:', error);
+        }
+      }
+      
+      // Atualizar modo_trabalho nos requisitos
+      if (modo_trabalho !== undefined) {
+        requisitosData.modo_trabalho = modo_trabalho;
+        console.log('[PATCH /api/jobs] ✅ ATUALIZANDO modo_trabalho nos requisitos:', modo_trabalho);
+      }
+      
+      // Salvar requisitos_json atualizado
+      updateData.requisitos_json = JSON.stringify(requisitosData);
+      console.log('[PATCH /api/jobs] ✅ SALVANDO requisitos_json atualizado:', JSON.stringify(requisitosData, null, 2));
+    }
+
+    // Manter compatibilidade com campos antigos
+    if (requisitos_obrigatorios !== undefined) {
+      updateData.requisitos_obrigatorios = requisitos_obrigatorios;
+    }
+    if (requisitos_desejaveis !== undefined) {
+      updateData.requisitos_desejaveis = requisitos_desejaveis;
+    }
+
+    console.log('[PATCH /api/jobs] 💾 Dados finais para atualização:', updateData);
+    
+    const updatedJob = await baserowServer.patch(VAGAS_TABLE_ID, parseInt(jobId), updateData);
+    console.log('[PATCH /api/jobs] ✅ Vaga atualizada com sucesso:', updatedJob.id);
     res.json(updatedJob);
   } catch (error: any) {
-    console.error('Erro ao atualizar vaga (backend):', error);
+    console.error('[PATCH /api/jobs] ❌ Erro ao atualizar vaga:', error);
     res.status(500).json({ error: 'Não foi possível atualizar a vaga.' });
   }
 });
@@ -898,7 +1018,29 @@ app.get('/api/data/all/:userId', async (req: Request, res: Response) => {
       return enrichedCandidate;
     });
 
-    res.json({ jobs: userJobs, candidates: syncedCandidates });
+    // Enriquecer os jobs com modo_trabalho extraído do requisitos_json
+    const enrichedJobs = userJobs.map((job: BaserowJobPosting) => {
+      let modo_trabalho = null;
+      
+      // Tentar extrair modo_trabalho do requisitos_json
+      if (job.requisitos_json) {
+        try {
+          const requisitos = JSON.parse(job.requisitos_json);
+          if (requisitos.modo_trabalho) {
+            modo_trabalho = requisitos.modo_trabalho;
+          }
+        } catch (error) {
+          console.warn('[API] Erro ao parsear requisitos_json do job', job.id, ':', error);
+        }
+      }
+      
+      return {
+        ...job,
+        modo_trabalho
+      };
+    });
+
+    res.json({ jobs: enrichedJobs, candidates: syncedCandidates });
 
   } catch (error: any) {
     console.error('Erro ao buscar todos os dados (backend):', error);

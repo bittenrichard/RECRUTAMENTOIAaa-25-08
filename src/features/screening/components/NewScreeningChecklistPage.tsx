@@ -1,17 +1,60 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { useDataStore } from '../../../shared/store/useDataStore';
+import React, { useState } from 'react';
+import { ArrowLeft, Building2, MapPin, FileText, Clock, Users, Check, CheckSquare, X, Save } from 'lucide-react';
 import { useAuth } from '../../auth/hooks/useAuth';
-import { RequirementsData } from '../types';
-import { ArrowLeft, Building2, CheckSquare, Users, MapPin, FileText, Clock, X, Save, Check } from 'lucide-react';
 
-const EditScreeningPage: React.FC = () => {
-  const navigate = useNavigate();
-  const { jobId } = useParams<{ jobId: string }>();
-  const { jobs, updateJobInStore } = useDataStore();
+interface RequirementsData {
+  // Dados básicos
+  idade?: { min: string; max: string };
+  
+  // Localização & Mobilidade
+  cidade_estado?: { cidade: string; estado: string; regioes: string[] };
+  distancia?: { maxima: string; calculo_automatico: boolean };
+  cnh?: string[];
+  
+  // Formação Acadêmica
+  escolaridade_minima?: string;
+  area_formacao?: string[];
+  cursos_complementares?: string[];
+  pos_graduacao?: { nivel: string; obrigatorio: boolean };
+  
+  // Histórico Profissional
+  tempo_total_experiencia?: { minimo: string; preferencial: string };
+  tempo_funcao_especifica?: { funcao: string; tempo_minimo: string };
+  experiencia_setor?: string[];
+  porte_empresa?: string[];
+  cargos_lideranca?: { tamanho_equipe: string; nivel: string };
+  
+  // Habilidades Técnicas
+  tecnologias_softwares?: {nome: string, nivel: string, obrigatorio: boolean}[];
+  idiomas?: {idioma: string, nivel: string, obrigatorio: boolean}[];
+  certificacoes_tecnicas?: {nome: string, obrigatorio: boolean}[];
+  registros_profissionais?: string[];
+  
+  // Soft Skills
+  soft_skills?: string[];
+}
+
+interface JobData {
+  titulo: string;
+  endereco: string;
+  modo_trabalho: 'presencial' | 'remoto' | 'hibrido';
+  descricao: string;
+  requisitos: RequirementsData; // Para compatibilidade (pode ser removido depois)
+  requisitos_json: string; // Nova coluna no banco
+  criado_em: string;
+}
+
+interface NewScreeningChecklistPageProps {
+  onJobCreated: (newJob: JobData) => void;
+  onCancel: () => void;
+}
+
+const NewScreeningChecklistPage: React.FC<NewScreeningChecklistPageProps> = ({
+  onJobCreated,
+  onCancel
+}) => {
+  // Hook para capturar o usuário logado
   const { profile } = useAuth();
-
-  const jobToEdit = jobs.find(job => job.id === Number(jobId));
 
   // Estados básicos do formulário
   const [jobTitle, setJobTitle] = useState('');
@@ -20,7 +63,7 @@ const EditScreeningPage: React.FC = () => {
   const [description, setDescription] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Estados dos requisitos organizados por categoria (como no NewScreeningChecklistPage)
+  // Estados dos requisitos organizados por categoria
   const [basicRequirements, setBasicRequirements] = useState({
     idade: false
   });
@@ -57,8 +100,8 @@ const EditScreeningPage: React.FC = () => {
     soft_skills: false
   });
 
-  // Estados para configurações específicas (copiados do NewScreeningChecklistPage)
-  const [idadeConfig, setIdadeConfig] = useState({ min: '', max: '' });
+  // Estados para configurações específicas
+  const [idadeConfig, setIdadeConfig] = useState({ min: '18', max: '65' });
   const [cidadeEstadoConfig, setCidadeEstadoConfig] = useState({ cidade: '', estado: '', regioes: [] as string[] });
   const [distanciaConfig, setDistanciaConfig] = useState({ maxima: '', calculo_automatico: true });
   const [cnhConfig, setCnhConfig] = useState<string[]>([]);
@@ -77,131 +120,7 @@ const EditScreeningPage: React.FC = () => {
   const [registrosConfig, setRegistrosConfig] = useState<string[]>([]);
   const [softSkillsConfig, setSoftSkillsConfig] = useState<string[]>([]);
 
-  // Carregar dados da vaga ao montar o componente
-  useEffect(() => {
-    if (jobToEdit) {
-      setJobTitle(jobToEdit.titulo);
-      setDescription(jobToEdit.descricao);
-      setWorkLocation(jobToEdit.endereco || '');
-      
-      // Tentar extrair modo_trabalho do requisitos_json primeiro, depois usar campo direto
-      let modoTrabalhoExtraido = 'presencial';
-      
-      if (jobToEdit.requisitos_json) {
-        try {
-          const requisitos: RequirementsData = JSON.parse(jobToEdit.requisitos_json);
-          if (requisitos.modo_trabalho) {
-            modoTrabalhoExtraido = requisitos.modo_trabalho as 'presencial' | 'remoto' | 'hibrido';
-          }
-        } catch (error) {
-          console.warn('Erro ao parsear requisitos_json:', error);
-        }
-      }
-      
-      // Se não encontrou no requisitos_json, usar o campo direto
-      if (!modoTrabalhoExtraido || modoTrabalhoExtraido === 'presencial') {
-        modoTrabalhoExtraido = jobToEdit.modo_trabalho || 'presencial';
-      }
-      
-      setWorkMode(modoTrabalhoExtraido as 'presencial' | 'remoto' | 'hibrido');
-
-      // Parse dos requisitos JSON se existirem
-      if (jobToEdit.requisitos_json) {
-        try {
-          const requisitos: RequirementsData = JSON.parse(jobToEdit.requisitos_json);
-          
-          // Carregar dados básicos
-          if (requisitos.idade) {
-            setBasicRequirements(prev => ({ ...prev, idade: true }));
-            setIdadeConfig(requisitos.idade);
-          }
-
-          // Carregar localização
-          if (requisitos.cidade_estado) {
-            setLocationRequirements(prev => ({ ...prev, cidade_estado: true }));
-            setCidadeEstadoConfig(requisitos.cidade_estado);
-          }
-          if (requisitos.distancia) {
-            setLocationRequirements(prev => ({ ...prev, distancia: true }));
-            setDistanciaConfig(requisitos.distancia);
-          }
-          if (requisitos.cnh) {
-            setLocationRequirements(prev => ({ ...prev, cnh: true }));
-            setCnhConfig(requisitos.cnh);
-          }
-
-          // Carregar formação acadêmica
-          if (requisitos.escolaridade_minima) {
-            setEducationRequirements(prev => ({ ...prev, escolaridade_minima: true }));
-            setEscolaridadeConfig(requisitos.escolaridade_minima);
-          }
-          if (requisitos.area_formacao) {
-            setEducationRequirements(prev => ({ ...prev, area_formacao: true }));
-            setAreaFormacaoConfig(requisitos.area_formacao);
-          }
-          if (requisitos.cursos_complementares) {
-            setEducationRequirements(prev => ({ ...prev, cursos_complementares: true }));
-            setCursosComplementaresConfig(requisitos.cursos_complementares);
-          }
-          if (requisitos.pos_graduacao) {
-            setEducationRequirements(prev => ({ ...prev, pos_graduacao: true }));
-            setPosGraduacaoConfig(requisitos.pos_graduacao);
-          }
-
-          // Carregar experiência profissional
-          if (requisitos.tempo_total_experiencia) {
-            setExperienceRequirements(prev => ({ ...prev, tempo_total_experiencia: true }));
-            setTempoTotalConfig(requisitos.tempo_total_experiencia);
-          }
-          if (requisitos.tempo_funcao_especifica) {
-            setExperienceRequirements(prev => ({ ...prev, tempo_funcao_especifica: true }));
-            setTempoFuncaoConfig(requisitos.tempo_funcao_especifica);
-          }
-          if (requisitos.experiencia_setor) {
-            setExperienceRequirements(prev => ({ ...prev, experiencia_setor: true }));
-            setExperienciaSetorConfig(requisitos.experiencia_setor);
-          }
-          if (requisitos.porte_empresa) {
-            setExperienceRequirements(prev => ({ ...prev, porte_empresa: true }));
-            setPorteEmpresaConfig(requisitos.porte_empresa);
-          }
-          if (requisitos.cargos_lideranca) {
-            setExperienceRequirements(prev => ({ ...prev, cargos_lideranca: true }));
-            setLiderancaConfig(requisitos.cargos_lideranca);
-          }
-
-          // Carregar habilidades técnicas
-          if (requisitos.tecnologias_softwares) {
-            setTechnicalRequirements(prev => ({ ...prev, tecnologias_softwares: true }));
-            setTecnologiasConfig(requisitos.tecnologias_softwares);
-          }
-          if (requisitos.idiomas) {
-            setTechnicalRequirements(prev => ({ ...prev, idiomas: true }));
-            setIdiomasConfig(requisitos.idiomas);
-          }
-          if (requisitos.certificacoes_tecnicas) {
-            setTechnicalRequirements(prev => ({ ...prev, certificacoes_tecnicas: true }));
-            setCertificacoesConfig(requisitos.certificacoes_tecnicas);
-          }
-          if (requisitos.registros_profissionais) {
-            setTechnicalRequirements(prev => ({ ...prev, registros_profissionais: true }));
-            setRegistrosConfig(requisitos.registros_profissionais);
-          }
-
-          // Carregar soft skills
-          if (requisitos.soft_skills) {
-            setSoftSkillsRequirements(prev => ({ ...prev, soft_skills: true }));
-            setSoftSkillsConfig(requisitos.soft_skills);
-          }
-
-        } catch (error) {
-          console.error('Erro ao carregar requisitos da vaga:', error);
-        }
-      }
-    }
-  }, [jobToEdit]);
-
-  // Funções para adicionar/remover itens dinâmicos (idênticas ao NewScreeningChecklistPage)
+  // Funções para adicionar/remover itens dinâmicos
   const addTecnologia = () => {
     setTecnologiasConfig(prev => [...prev, { nome: '', nivel: 'basico', obrigatorio: false }]);
   };
@@ -257,14 +176,7 @@ const EditScreeningPage: React.FC = () => {
     // Validação crítica: verificar se o usuário está logado
     if (!profile || !profile.id) {
       console.error('❌ ERRO CRÍTICO: Usuário não está logado!');
-      alert('Erro: Você precisa estar logado para editar vagas. Faça login novamente.');
-      setIsSubmitting(false);
-      return;
-    }
-
-    if (!jobToEdit) {
-      console.error('❌ Vaga não encontrada para edição');
-      alert('Erro: Vaga não encontrada.');
+      alert('Erro: Você precisa estar logado para criar vagas. Faça login novamente.');
       setIsSubmitting(false);
       return;
     }
@@ -289,8 +201,15 @@ const EditScreeningPage: React.FC = () => {
       return;
     }
 
+    console.log('👤 USUÁRIO LOGADO:', {
+      id: profile.id,
+      nome: profile.nome,
+      email: profile.email,
+      empresa: profile.empresa
+    });
+
     try {
-      // Preparar dados dos requisitos conforme nova estrutura (mesmo código do NewScreeningChecklistPage)
+      // Preparar dados dos requisitos conforme nova estrutura
       const requirementsData: RequirementsData = {};
 
       // Dados Básicos
@@ -359,10 +278,20 @@ const EditScreeningPage: React.FC = () => {
         requirementsData.soft_skills = softSkillsConfig;
       }
 
-      console.log('📝 Atualizando vaga:', {
-        id: jobToEdit.id,
+      // Criar objeto da vaga com requisitos em JSON
+      const newJob: JobData = {
         titulo: jobTitle,
-        usuario: {
+        endereco: workLocation,
+        modo_trabalho: workMode,
+        descricao: description,
+        requisitos: requirementsData, // Para compatibilidade
+        requisitos_json: JSON.stringify(requirementsData), // Nova coluna no banco
+        criado_em: new Date().toISOString(),
+      };
+
+      console.log('📝 Dados da nova vaga:', {
+        titulo: jobTitle,
+        criada_por_usuario: {
           id: profile.id,
           nome: profile.nome,
           email: profile.email
@@ -371,7 +300,8 @@ const EditScreeningPage: React.FC = () => {
         requisitos_json_preview: JSON.stringify(requirementsData, null, 2)
       });
 
-      // Enviar para a API
+      // Enviar para a API real
+      console.log('💾 Enviando vaga para o backend...');
       const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
       
       const jobPayload = {
@@ -379,10 +309,11 @@ const EditScreeningPage: React.FC = () => {
         endereco: workLocation,
         modo_trabalho: workMode,
         descricao: description,
-        requisitos_json: JSON.stringify(requirementsData)
+        requisitos_json: JSON.stringify(requirementsData), // Nova coluna no banco
+        usuario: [profile.id] // ID do usuário logado (CORRIGIDO!)
       };
 
-      console.log('📦 PAYLOAD FINAL para edição:', {
+      console.log('📦 PAYLOAD FINAL (usuário correto):', {
         ...jobPayload,
         usuario_info: {
           id: profile.id,
@@ -392,59 +323,37 @@ const EditScreeningPage: React.FC = () => {
         requisitos_json: '[JSON DATA]'
       });
 
-      const response = await fetch(`${API_BASE_URL}/api/jobs/${jobToEdit.id}`, {
-        method: 'PATCH',
+      const response = await fetch(`${API_BASE_URL}/api/jobs`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(jobPayload),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Erro ao atualizar vaga');
+        throw new Error(errorData.error || 'Erro ao criar vaga');
       }
 
-      const updatedJob = await response.json();
-      console.log('✅ Vaga atualizada com sucesso:', updatedJob);
+      const createdJob = await response.json();
+      console.log('✅ Vaga criada com sucesso:', createdJob);
 
-      // Atualizar o store local
-      updateJobInStore(updatedJob);
-      
-      // Voltar para o dashboard
-      navigate('/dashboard');
+      onJobCreated(newJob);
     } catch (error) {
-      console.error('Erro ao atualizar vaga:', error);
-      alert('Erro ao atualizar vaga. Tente novamente.');
+      console.error('Erro ao criar vaga:', error);
     } finally {
       setIsSubmitting(false);
     }
   };
-    
-  if (!jobToEdit) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">Vaga não encontrada</h2>
-          <p className="text-gray-600 mb-4">A vaga que você está tentando editar não foi encontrada ou não pertence a você.</p>
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-          >
-            Voltar ao Dashboard
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header fixo */}
+      {/* Header fixo - removido sticky, agora é fixed */}
       <div className="fixed top-0 left-0 right-0 bg-white border-b border-gray-200 shadow-sm z-50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center">
               <button
-                onClick={() => navigate('/dashboard')}
+                onClick={onCancel}
                 className="flex items-center text-gray-600 hover:text-gray-900 transition-colors font-medium"
               >
                 <ArrowLeft size={20} className="mr-2" />
@@ -455,7 +364,7 @@ const EditScreeningPage: React.FC = () => {
                   <Building2 size={16} className="text-indigo-600" />
                 </div>
                 <div>
-                  <h1 className="text-lg font-semibold text-gray-900">Editar Vaga</h1>
+                  <h1 className="text-lg font-semibold text-gray-900">Criar Nova Triagem de Vaga</h1>
                 </div>
               </div>
             </div>
@@ -547,6 +456,9 @@ const EditScreeningPage: React.FC = () => {
                       placeholder="Ex: São Paulo - Centro, Rua ABC, 123"
                       required
                     />
+                    <p className="text-sm text-gray-500 mt-1">
+                      {workMode === 'hibrido' ? 'Endereço para os dias presenciais' : 'Endereço onde o funcionário trabalhará'}
+                    </p>
                   </div>
                 )}
               </div>
@@ -568,7 +480,7 @@ const EditScreeningPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Bloco 2: Requisitos da Vaga - Interface hierárquica completa */}
+          {/* Bloco 2: Requisitos (Estrutura Hierárquica) */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center">
               <CheckSquare size={20} className="mr-2 text-green-600" />
@@ -576,7 +488,7 @@ const EditScreeningPage: React.FC = () => {
             </h2>
             
             <p className="text-gray-600 mb-8">
-              Configure os critérios de triagem para esta vaga. Marque apenas os requisitos que são realmente importantes para a função.
+              Selecione os critérios de triagem para esta vaga. Cada categoria pode ter múltiplos requisitos específicos.
             </p>
 
             <div className="space-y-8">
@@ -653,7 +565,7 @@ const EditScreeningPage: React.FC = () => {
               <div className="border border-green-200 rounded-lg p-6 bg-green-50">
                 <h3 className="text-lg font-semibold text-green-900 mb-4 flex items-center">
                   <MapPin size={18} className="mr-2" />
-                  Localização & Mobilidade
+                  Localização
                 </h3>
                 
                 <div className="space-y-4">
@@ -672,7 +584,7 @@ const EditScreeningPage: React.FC = () => {
                   
                   {locationRequirements.cidade_estado && (
                     <div className="ml-6 p-4 bg-white rounded-lg border border-green-200">
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-2 gap-4 mb-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Cidade</label>
                           <input
@@ -708,12 +620,71 @@ const EditScreeningPage: React.FC = () => {
                             <option value="AM">Amazonas</option>
                             <option value="MA">Maranhão</option>
                             <option value="PB">Paraíba</option>
+                            <option value="RN">Rio Grande do Norte</option>
+                            <option value="AL">Alagoas</option>
+                            <option value="SE">Sergipe</option>
+                            <option value="PI">Piauí</option>
+                            <option value="AC">Acre</option>
+                            <option value="RO">Rondônia</option>
+                            <option value="RR">Roraima</option>
+                            <option value="AP">Amapá</option>
+                            <option value="TO">Tocantins</option>
+                            <option value="ES">Espírito Santo</option>
                           </select>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Regiões aceitas (opcional)</label>
+                        <input
+                          type="text"
+                          placeholder="Ex: Grande São Paulo, ABC, Interior..."
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  
+                  <label className="flex items-start">
+                    <input
+                      type="checkbox"
+                      checked={locationRequirements.distancia}
+                      onChange={(e) => setLocationRequirements(prev => ({ ...prev, distancia: e.target.checked }))}
+                      className="mt-1 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                    />
+                    <div className="ml-3">
+                      <span className="font-medium text-gray-900">Distância (cálculo automático)</span>
+                      <p className="text-sm text-gray-600">Distância máxima do local de trabalho</p>
+                    </div>
+                  </label>
+                  
+                  {locationRequirements.distancia && (
+                    <div className="ml-6 p-4 bg-white rounded-lg border border-green-200">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Distância máxima (km)</label>
+                          <input
+                            type="number"
+                            value={distanciaConfig.maxima}
+                            onChange={(e) => setDistanciaConfig(prev => ({ ...prev, maxima: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                            placeholder="30"
+                          />
+                        </div>
+                        <div>
+                          <label className="flex items-center mt-6">
+                            <input
+                              type="checkbox"
+                              checked={distanciaConfig.calculo_automatico}
+                              onChange={(e) => setDistanciaConfig(prev => ({ ...prev, calculo_automatico: e.target.checked }))}
+                              className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">Cálculo automático via Maps</span>
+                          </label>
                         </div>
                       </div>
                     </div>
                   )}
-
+                  
                   <label className="flex items-start">
                     <input
                       type="checkbox"
@@ -722,15 +693,15 @@ const EditScreeningPage: React.FC = () => {
                       className="mt-1 rounded border-gray-300 text-green-600 focus:ring-green-500"
                     />
                     <div className="ml-3">
-                      <span className="font-medium text-gray-900">CNH (Carteira de Habilitação)</span>
-                      <p className="text-sm text-gray-600">Categorias de CNH necessárias</p>
+                      <span className="font-medium text-gray-900">CNH</span>
+                      <p className="text-sm text-gray-600">Carteira de motorista necessária</p>
                     </div>
                   </label>
                   
                   {locationRequirements.cnh && (
                     <div className="ml-6 p-4 bg-white rounded-lg border border-green-200">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Categorias aceitas</label>
-                      <div className="grid grid-cols-5 gap-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Categorias necessárias</label>
+                      <div className="flex flex-wrap gap-2">
                         {['A', 'B', 'C', 'D', 'E'].map(categoria => (
                           <label key={categoria} className="flex items-center">
                             <input
@@ -745,7 +716,7 @@ const EditScreeningPage: React.FC = () => {
                               }}
                               className="rounded border-gray-300 text-green-600 focus:ring-green-500"
                             />
-                            <span className="ml-2 text-sm">Categoria {categoria}</span>
+                            <span className="ml-2 text-sm font-medium">Categoria {categoria}</span>
                           </label>
                         ))}
                       </div>
@@ -770,8 +741,8 @@ const EditScreeningPage: React.FC = () => {
                       className="mt-1 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                     />
                     <div className="ml-3">
-                      <span className="font-medium text-gray-900">Escolaridade Mínima</span>
-                      <p className="text-sm text-gray-600">Nível de educação necessário</p>
+                      <span className="font-medium text-gray-900">Escolaridade mínima</span>
+                      <p className="text-sm text-gray-600">Nível de ensino obrigatório</p>
                     </div>
                   </label>
                   
@@ -789,8 +760,8 @@ const EditScreeningPage: React.FC = () => {
                         <option value="medio_incompleto">Ensino Médio Incompleto</option>
                         <option value="medio_completo">Ensino Médio Completo</option>
                         <option value="tecnico">Curso Técnico</option>
-                        <option value="superior_incompleto">Ensino Superior Incompleto</option>
-                        <option value="superior_completo">Ensino Superior Completo</option>
+                        <option value="superior_incompleto">Superior Incompleto</option>
+                        <option value="superior_completo">Superior Completo</option>
                         <option value="pos_graduacao">Pós-graduação</option>
                         <option value="mestrado">Mestrado</option>
                         <option value="doutorado">Doutorado</option>
@@ -943,11 +914,11 @@ const EditScreeningPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* 4. EXPERIÊNCIA PROFISSIONAL */}
+              {/* 4. HISTÓRICO PROFISSIONAL */}
               <div className="border border-orange-200 rounded-lg p-6 bg-orange-50">
                 <h3 className="text-lg font-semibold text-orange-900 mb-4 flex items-center">
                   <Clock size={18} className="mr-2" />
-                  Experiência Profissional
+                  Histórico Profissional
                 </h3>
                 
                 <div className="space-y-4">
@@ -959,8 +930,8 @@ const EditScreeningPage: React.FC = () => {
                       className="mt-1 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
                     />
                     <div className="ml-3">
-                      <span className="font-medium text-gray-900">Tempo Total de Experiência</span>
-                      <p className="text-sm text-gray-600">Anos de experiência profissional</p>
+                      <span className="font-medium text-gray-900">Tempo total de experiência</span>
+                      <p className="text-sm text-gray-600">Anos de experiência profissional total</p>
                     </div>
                   </label>
                   
@@ -968,36 +939,24 @@ const EditScreeningPage: React.FC = () => {
                     <div className="ml-6 p-4 bg-white rounded-lg border border-orange-200">
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Mínimo (obrigatório)</label>
-                          <select
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Tempo mínimo (anos)</label>
+                          <input
+                            type="number"
                             value={tempoTotalConfig.minimo}
                             onChange={(e) => setTempoTotalConfig(prev => ({ ...prev, minimo: e.target.value }))}
                             className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-                          >
-                            <option value="">Selecionar</option>
-                            <option value="0">Sem experiência</option>
-                            <option value="6_meses">6 meses</option>
-                            <option value="1_ano">1 ano</option>
-                            <option value="2_anos">2 anos</option>
-                            <option value="3_anos">3 anos</option>
-                            <option value="5_anos">5 anos</option>
-                            <option value="10_anos">10 anos</option>
-                          </select>
+                            placeholder="2"
+                          />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Preferencial</label>
-                          <select
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Tempo preferencial (anos)</label>
+                          <input
+                            type="number"
                             value={tempoTotalConfig.preferencial}
                             onChange={(e) => setTempoTotalConfig(prev => ({ ...prev, preferencial: e.target.value }))}
                             className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-                          >
-                            <option value="">Selecionar</option>
-                            <option value="2_anos">2 anos</option>
-                            <option value="3_anos">3 anos</option>
-                            <option value="5_anos">5 anos</option>
-                            <option value="10_anos">10 anos</option>
-                            <option value="15_anos">15 anos</option>
-                          </select>
+                            placeholder="5"
+                          />
                         </div>
                       </div>
                     </div>
@@ -1538,7 +1497,7 @@ const EditScreeningPage: React.FC = () => {
           <div className="flex justify-end gap-4 pt-6">
             <button
               type="button"
-              onClick={() => navigate('/dashboard')}
+              onClick={onCancel}
               className="px-6 py-3 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium"
             >
               <X size={16} className="inline mr-2" />
@@ -1550,7 +1509,7 @@ const EditScreeningPage: React.FC = () => {
               className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 transition-colors font-medium"
             >
               <Save size={16} className="inline mr-2" />
-              {isSubmitting ? 'Salvando...' : 'Salvar Alterações'}
+              {isSubmitting ? 'Criando...' : 'Criar Triagem'}
             </button>
           </div>
         </form>
@@ -1559,4 +1518,4 @@ const EditScreeningPage: React.FC = () => {
   );
 };
 
-export default EditScreeningPage;
+export default NewScreeningChecklistPage;

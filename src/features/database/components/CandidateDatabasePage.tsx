@@ -16,6 +16,17 @@ const escolaridadeOptions = [
   'Pós-graduação', 'Mestrado', 'Doutorado',
 ];
 
+const faixasEtariasOptions = [
+  { label: '18 a 25 anos', min: 18, max: 25 },
+  { label: '26 a 30 anos', min: 26, max: 30 },
+  { label: '31 a 35 anos', min: 31, max: 35 },
+  { label: '36 a 40 anos', min: 36, max: 40 },
+  { label: '41 a 45 anos', min: 41, max: 45 },
+  { label: '46 a 50 anos', min: 46, max: 50 },
+  { label: '51 a 60 anos', min: 51, max: 60 },
+  { label: 'Acima de 60 anos', min: 61, max: 120 },
+];
+
 const LoadingSpinner: React.FC = () => (
     <div className="flex flex-col items-center justify-center h-full py-10">
         <Loader2 className="h-12 w-12 text-indigo-600 animate-spin" />
@@ -31,19 +42,44 @@ const CandidateDatabasePage: React.FC = () => {
     const [selectedVaga, setSelectedVaga] = useState('');
     const [selectedSexo, setSelectedSexo] = useState('');
     const [selectedEscolaridade, setSelectedEscolaridade] = useState('');
-    const [minIdade, setMinIdade] = useState('');
-    const [maxIdade, setMaxIdade] = useState('');
+    const [selectedFaixasEtarias, setSelectedFaixasEtarias] = useState<string[]>([]);
+    const [selectedCidade, setSelectedCidade] = useState('');
+    const [selectedBairro, setSelectedBairro] = useState('');
 
     const [showFilters, setShowFilters] = useState(true);
     const [vagas, setVagas] = useState<string[]>([]);
+    const [cidades, setCidades] = useState<string[]>([]);
+    const [bairros, setBairros] = useState<string[]>([]);
     const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
     const [candidateToDelete, setCandidateToDelete] = useState<Candidate | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
 
     useEffect(() => {
         console.log("Banco de Talentos: allCandidatesFromStore (brutos):", allCandidatesFromStore);
+        
+        // Processar vagas
         const uniqueVagas = [...new Set(allCandidatesFromStore.flatMap(c => c.vaga?.map(v => v.value) || []).filter(Boolean) as string[])].sort();
         setVagas(uniqueVagas);
+        
+        // Processar cidades
+        const uniqueCidades = [...new Set(
+            allCandidatesFromStore
+                .map(c => c.cidade)
+                .filter(Boolean)
+                .map(c => String(c).trim())
+                .filter(c => c.length > 0)
+        )].sort();
+        setCidades(uniqueCidades);
+        
+        // Processar bairros
+        const uniqueBairros = [...new Set(
+            allCandidatesFromStore
+                .map(c => c.bairro)
+                .filter(Boolean)
+                .map(b => String(b).trim())
+                .filter(b => b.length > 0)
+        )].sort();
+        setBairros(uniqueBairros);
     }, [allCandidatesFromStore]);
 
     const filteredCandidates = useMemo(() => {
@@ -63,23 +99,40 @@ const CandidateDatabasePage: React.FC = () => {
                 ? (candidate.escolaridade && candidate.escolaridade.toLowerCase() === selectedEscolaridade.toLowerCase())
                 : true;
 
-            const minIdadeNum = minIdade ? parseInt(minIdade) : 0;
-            const maxIdadeNum = maxIdade ? parseInt(maxIdade) : Infinity;
+            // Filtro de cidade
+            const cidadeMatch = selectedCidade 
+                ? (candidate.cidade && candidate.cidade.toLowerCase().includes(selectedCidade.toLowerCase()))
+                : true;
+
+            // Filtro de bairro
+            const bairroMatch = selectedBairro 
+                ? (candidate.bairro && candidate.bairro.toLowerCase().includes(selectedBairro.toLowerCase()))
+                : true;
+
+            // Filtro de idade (múltiplas faixas etárias)
+            let idadeMatch = true;
             
-            const idadeMatch = 
-                (minIdade === '' || (candidate.idade !== undefined && candidate.idade !== null && Number(candidate.idade) >= minIdadeNum)) &&
-                (maxIdade === '' || (candidate.idade !== undefined && candidate.idade !== null && Number(candidate.idade) <= maxIdadeNum));
+            if (selectedFaixasEtarias.length > 0 && candidate.idade !== undefined && candidate.idade !== null) {
+                const idade = Number(candidate.idade);
+                idadeMatch = selectedFaixasEtarias.some(faixaLabel => {
+                    const faixa = faixasEtariasOptions.find(f => f.label === faixaLabel);
+                    if (faixa) {
+                        return idade >= faixa.min && idade <= faixa.max;
+                    }
+                    return false;
+                });
+            }
 
-
-            return nameMatch && vagaMatch && sexoMatch && escolaridadeMatch && idadeMatch;
+            return nameMatch && vagaMatch && sexoMatch && escolaridadeMatch && cidadeMatch && bairroMatch && idadeMatch;
         });
         console.log("Banco de Talentos: filteredCandidates (após filtros):", filtered);
         return filtered;
-    }, [allCandidatesFromStore, searchTerm, selectedVaga, selectedSexo, selectedEscolaridade, minIdade, maxIdade]);
+    }, [allCandidatesFromStore, searchTerm, selectedVaga, selectedSexo, selectedEscolaridade, selectedFaixasEtarias, selectedCidade, selectedBairro]);
     
     const clearFilters = () => {
         setSearchTerm(''); setSelectedVaga(''); setSelectedSexo('');
-        setSelectedEscolaridade(''); setMinIdade(''); setMaxIdade('');
+        setSelectedEscolaridade(''); setSelectedFaixasEtarias([]);
+        setSelectedCidade(''); setSelectedBairro('');
     };
 
     const handleDeleteCandidate = async () => {
@@ -97,7 +150,7 @@ const CandidateDatabasePage: React.FC = () => {
         }
     };
 
-    const activeFilterCount = [searchTerm, selectedVaga, selectedSexo, selectedEscolaridade, minIdade, maxIdade].filter(Boolean).length;
+    const activeFilterCount = [searchTerm, selectedVaga, selectedSexo, selectedEscolaridade, selectedFaixasEtarias.length > 0 ? 'idade' : '', selectedCidade, selectedBairro].filter(Boolean).length;
 
     if (isDataLoading) return <LoadingSpinner />;
 
@@ -119,7 +172,7 @@ const CandidateDatabasePage: React.FC = () => {
 
                 {showFilters && (
                     <div className="mb-8 bg-white p-6 rounded-lg shadow-md border border-gray-200">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Buscar por nome</label>
                                 <input type="text" placeholder="Nome do candidato..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full text-sm border-gray-300 rounded-md" />
@@ -145,14 +198,45 @@ const CandidateDatabasePage: React.FC = () => {
                                     {escolaridadeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                                 </select>
                             </div>
-                            <div className="flex items-end gap-2 col-span-2 sm:col-span-1">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Idade Mín.</label>
-                                    <input type="number" placeholder="Ex: 25" value={minIdade} onChange={e => setMinIdade(e.target.value)} className="w-full text-sm border-gray-300 rounded-md"/>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Idade Máx.</label>
-                                    <input type="number" placeholder="Ex: 40" value={maxIdade} onChange={e => setMaxIdade(e.target.value)} className="w-full text-sm border-gray-300 rounded-md"/>
+                            
+                            {/* Novos filtros: Cidade, Bairro */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Cidade</label>
+                                <select value={selectedCidade} onChange={e => setSelectedCidade(e.target.value)} className="w-full text-sm border-gray-300 rounded-md">
+                                    <option value="">Todas</option>
+                                    {cidades.map(cidade => <option key={cidade} value={cidade}>{cidade}</option>)}
+                                </select>
+                            </div>
+                            
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Bairro</label>
+                                <select value={selectedBairro} onChange={e => setSelectedBairro(e.target.value)} className="w-full text-sm border-gray-300 rounded-md">
+                                    <option value="">Todos</option>
+                                    {bairros.map(bairro => <option key={bairro} value={bairro}>{bairro}</option>)}
+                                </select>
+                            </div>
+                            
+                            {/* Filtros de Faixa Etária (múltipla seleção) */}
+                            <div className="col-span-full">
+                                <label className="block text-sm font-medium text-gray-700 mb-3">Faixas Etárias</label>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                    {faixasEtariasOptions.map(faixa => (
+                                        <label key={faixa.label} className="flex items-center space-x-2 text-sm">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedFaixasEtarias.includes(faixa.label)}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setSelectedFaixasEtarias(prev => [...prev, faixa.label]);
+                                                    } else {
+                                                        setSelectedFaixasEtarias(prev => prev.filter(f => f !== faixa.label));
+                                                    }
+                                                }}
+                                                className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                            />
+                                            <span className="text-gray-700">{faixa.label}</span>
+                                        </label>
+                                    ))}
                                 </div>
                             </div>
                         </div>

@@ -1,0 +1,100 @@
+{
+  "exemplo_vaga_completa": {
+    "titulo": "Desenvolvedor Full Stack",
+    "endereco": "São Paulo, SP",
+    "modo_trabalho": "hibrido",
+    "descricao": "Desenvolvedor experiente para projetos web",
+    "requisitos_json": {
+      "idade": {
+        "min": "25",
+        "max": "45"
+      },
+      "cidade_estado": {
+        "cidade": "São Paulo",
+        "estado": "SP",
+        "regioes": ["Grande São Paulo", "ABC"]
+      },
+      "distancia": {
+        "maxima": "30",
+        "calculo_automatico": true
+      },
+      "cnh": ["B"],
+      "escolaridade_minima": "superior_completo",
+      "area_formacao": ["Ciência da Computação", "Engenharia de Software"],
+      "cursos_complementares": ["Docker", "Kubernetes", "AWS"],
+      "pos_graduacao": {
+        "nivel": "especializacao",
+        "obrigatorio": false
+      },
+      "tempo_total_experiencia": {
+        "minimo": "3",
+        "preferencial": "5"
+      },
+      "tempo_funcao_especifica": {
+        "funcao": "Desenvolvedor Full Stack",
+        "tempo_minimo": "2"
+      },
+      "experiencia_setor": ["Tecnologia", "Fintech"],
+      "porte_empresa": ["Média empresa", "Grande empresa"],
+      "cargos_lideranca": {
+        "tamanho_equipe": "5",
+        "nivel": "coordenacao"
+      },
+      "tecnologias_softwares": [
+        {
+          "nome": "React",
+          "nivel": "avancado",
+          "obrigatorio": true
+        },
+        {
+          "nome": "Node.js",
+          "nivel": "intermediario",
+          "obrigatorio": true
+        },
+        {
+          "nome": "Docker",
+          "nivel": "basico",
+          "obrigatorio": false
+        }
+      ],
+      "idiomas": [
+        {
+          "idioma": "ingles",
+          "nivel": "intermediario",
+          "obrigatorio": true
+        }
+      ],
+      "certificacoes_tecnicas": [
+        {
+          "nome": "AWS Certified",
+          "obrigatorio": false
+        }
+      ],
+      "registros_profissionais": [],
+      "soft_skills": ["Liderança", "Comunicação", "Trabalho em equipe"]
+    }
+  },
+  
+  "exemplo_vaga_simples": {
+    "titulo": "Vendedor",
+    "endereco": "São Paulo, SP", 
+    "modo_trabalho": "presencial",
+    "descricao": "Vendedor para loja de roupas",
+    "requisitos_json": {
+      "idade": {
+        "min": "18",
+        "max": "sem_limite"
+      },
+      "cidade_estado": {
+        "cidade": "São Paulo",
+        "estado": "SP",
+        "regioes": []
+      },
+      "escolaridade_minima": "medio_completo",
+      "tempo_total_experiencia": {
+        "minimo": "1",
+        "preferencial": "2"
+      }
+    }
+  }
+}

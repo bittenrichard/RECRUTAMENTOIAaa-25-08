@@ -138,8 +138,8 @@ const TestModelForm: React.FC<TestModelFormProps> = ({
       id: crypto.randomUUID(),
       tipo: 'multipla_escolha',
       enunciado: '',
-      opcoes: ['Opção A', 'Opção B', 'Opção C', 'Opção D'],
-      resposta_correta: 'Opção A',
+      opcoes: ['', '', '', ''],
+      resposta_correta: '',
       pontuacao: 1
     };
 
@@ -545,8 +545,8 @@ const QuestionEditor: React.FC<QuestionEditorProps> = ({
               onChange={(e) => onUpdate({ 
                 tipo: e.target.value as QuestionType,
                 // Reset fields when changing type
-                opcoes: e.target.value === 'multipla_escolha' ? ['Opção A', 'Opção B', 'Opção C', 'Opção D'] : undefined,
-                resposta_correta: e.target.value === 'dissertativa' ? undefined : (e.target.value === 'multipla_escolha' ? 'Opção A' : '')
+                opcoes: e.target.value === 'multipla_escolha' ? ['', '', '', ''] : undefined,
+                resposta_correta: e.target.value === 'dissertativa' ? undefined : ''
               })}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             >

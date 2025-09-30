@@ -144,8 +144,8 @@ const ImprovedTestModelForm: React.FC<ImprovedTestModelFormProps> = ({
       id: crypto.randomUUID(),
       tipo,
       enunciado: '',
-      opcoes: tipo === 'multipla_escolha' ? ['Opção A', 'Opção B', 'Opção C', 'Opção D'] : undefined,
-      resposta_correta: tipo === 'dissertativa' ? undefined : (tipo === 'multipla_escolha' ? 'Opção A' : ''),
+      opcoes: tipo === 'multipla_escolha' ? ['', '', '', ''] : undefined,
+      resposta_correta: tipo === 'dissertativa' ? undefined : '',
       pontuacao: 1,
       dificuldade: 'media' // Definir média como padrão
     };
@@ -519,8 +519,8 @@ const ImprovedQuestionEditor: React.FC<ImprovedQuestionEditorProps> = ({
                 value={questao.tipo}
                 onChange={(e) => onUpdate({ 
                   tipo: e.target.value as QuestionType,
-                  opcoes: e.target.value === 'multipla_escolha' ? ['Opção A', 'Opção B', 'Opção C', 'Opção D'] : undefined,
-                  resposta_correta: e.target.value === 'dissertativa' ? undefined : (e.target.value === 'multipla_escolha' ? 'Opção A' : '')
+                  opcoes: e.target.value === 'multipla_escolha' ? ['', '', '', ''] : undefined,
+                  resposta_correta: e.target.value === 'dissertativa' ? undefined : ''
                 })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               >

@@ -22,10 +22,36 @@ export interface EventFormData {
   location?: string;
 }
 
+// Cache simples no lado do cliente
+interface CacheEntry {
+  data: GoogleCalendarEvent[];
+  timestamp: number;
+  userId: number;
+}
+
 export class GoogleCalendarService {
+  private static cache: CacheEntry | null = null;
+  private static readonly CACHE_TTL = 10000; // 10 segundos
+
   static async listEvents(userId: number): Promise<GoogleCalendarEvent[]> {
     try {
       console.log('[DEBUG] GoogleCalendarService.listEvents - userId:', userId);
+      
+      // Verificar cache
+      if (this.cache && this.cache.userId === userId) {
+        const now = Date.now();
+        const age = now - this.cache.timestamp;
+        
+        if (age < this.CACHE_TTL) {
+          console.log('[DEBUG] ✅ CACHE HIT - Retornando dados em cache (' + Math.round(age/1000) + 's atrás)');
+          return this.cache.data;
+        } else {
+          console.log('[DEBUG] 🔄 CACHE EXPIRED - Cache expirado, fazendo nova requisição');
+          this.cache = null;
+        }
+      }
+      
+      console.log('[DEBUG] 🚀 NOVA REQUISIÇÃO - Fazendo request para API');
       console.log('[DEBUG] API_BASE_URL:', API_BASE_URL);
       
       const url = `${API_BASE_URL}/api/google/calendar/events/${userId}`;
@@ -56,11 +82,28 @@ export class GoogleCalendarService {
       const data = await response.json();
       console.log('[DEBUG] Response data:', data);
       console.log('[DEBUG] Número de eventos recebidos:', data.events?.length || 0);
-      return data.events || [];
+      
+      const events = data.events || [];
+      
+      // Salvar no cache
+      this.cache = {
+        data: events,
+        timestamp: Date.now(),
+        userId: userId
+      };
+      console.log('[DEBUG] 💾 CACHE SALVO - Dados salvos no cache');
+      
+      return events;
     } catch (error) {
       console.error('[ERROR] Erro ao listar eventos:', error);
       throw error;
     }
+  }
+
+  // Método para limpar o cache
+  static clearCache(): void {
+    console.log('[DEBUG] 🗑️ CACHE LIMPO - Cache foi limpo manualmente');
+    this.cache = null;
   }
 
   static async updateEvent(eventId: string, userId: number, eventData: EventFormData): Promise<GoogleCalendarEvent> {
@@ -81,6 +124,10 @@ export class GoogleCalendarService {
       }
 
       const data = await response.json();
+      
+      // Limpar cache após modificação
+      this.clearCache();
+      
       return data.data;
     } catch (error) {
       console.error('Erro ao atualizar evento:', error);
@@ -97,6 +144,10 @@ export class GoogleCalendarService {
       if (!response.ok) {
         throw new Error('Falha ao excluir evento do Google Calendar');
       }
+      
+      // Limpar cache após modificação
+      this.clearCache();
+      
     } catch (error) {
       console.error('Erro ao excluir evento:', error);
       throw error;
@@ -123,6 +174,10 @@ export class GoogleCalendarService {
       }
 
       const data = await response.json();
+      
+      // Limpar cache após modificação
+      this.clearCache();
+      
       return data.data;
     } catch (error) {
       console.error('Erro ao criar evento:', error);

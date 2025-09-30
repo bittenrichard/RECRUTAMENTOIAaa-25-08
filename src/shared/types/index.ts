@@ -11,7 +11,11 @@ export interface JobPosting {
   id: number;
   titulo: string;
   descricao?: string;
+  endereco?: string;
+  modo_trabalho?: string;
+  requisitos_json?: string; // Nova coluna com requisitos estruturados
   value?: string; // usado em alguns contextos
+  criado_em?: string;
   // outros campos da vaga
 }
 
@@ -44,6 +48,8 @@ export interface Candidate {
   sexo?: string;
   escolaridade?: string;
   idade?: number;
+  cidade?: string;
+  bairro?: string;
   criado_em?: string; // Data de criação/entrada no banco de talentos
   // Novos campos para entrevista e reprovação
   notas_entrevista?: string; // Anotações sobre o candidato na entrevista
