@@ -66,8 +66,30 @@ app.use((req, res, next) => {
 if (process.env.NODE_ENV === 'production') {
     app.set('trust proxy', process.env.TRUST_PROXY === 'true');
 }
-app.use(express.json({ limit: '100mb' }));
-app.use(express.urlencoded({ extended: true, limit: '100mb' }));
+// 🚀 CONFIGURAÇÕES DE PERFORMANCE OTIMIZADAS
+app.use((req, res, next) => {
+    // Configurar timeouts otimizados baseados no tipo de rota
+    if (req.path.includes('/upload') || req.path.includes('/curricul')) {
+        req.setTimeout(180000); // 3 minutos para uploads
+        res.setTimeout(180000);
+    }
+    else if (req.path.includes('/theoretical') || req.path.includes('/comportamental')) {
+        req.setTimeout(120000); // 2 minutos para testes
+        res.setTimeout(120000);
+    }
+    else {
+        req.setTimeout(30000); // 30 segundos para outras rotas
+        res.setTimeout(30000);
+    }
+    next();
+});
+app.use(express.json({
+    limit: '100mb'
+}));
+app.use(express.urlencoded({
+    extended: true,
+    limit: '100mb'
+}));
 // Endpoint de teste para verificar CORS
 app.get('/api/health', (req, res) => {
     res.json({
@@ -119,13 +141,35 @@ if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REDIRECT_URI) {
 const oauth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI);
 const googleCalendarCache = new Map();
 const CACHE_TTL = 30 * 1000; // 30 segundos TTL
+// 🚀 SISTEMA DE CACHE OTIMIZADO para dados frequentes
+const dataCache = new Map();
+const DATA_CACHE_TTL = 60000; // 1 minuto para dados de vaga e usuário
+const getCachedData = async (key, fetchFn) => {
+    const cached = dataCache.get(key);
+    if (cached && (Date.now() - cached.timestamp) < DATA_CACHE_TTL) {
+        console.log(`[CACHE] Hit para: ${key}`);
+        return cached.data;
+    }
+    console.log(`[CACHE] Miss para: ${key}, buscando dados...`);
+    const data = await fetchFn();
+    dataCache.set(key, { data, timestamp: Date.now() });
+    return data;
+};
 // Função para limpar cache expirado
 const cleanExpiredCache = () => {
     const now = Date.now();
+    // Limpar cache do Google Calendar
     for (const [key, entry] of googleCalendarCache.entries()) {
         if (now - entry.timestamp > CACHE_TTL) {
             googleCalendarCache.delete(key);
             console.log(`[CACHE] Removida entrada expirada: ${key}`);
+        }
+    }
+    // Limpar cache de dados
+    for (const [key, entry] of dataCache.entries()) {
+        if (now - entry.timestamp > DATA_CACHE_TTL) {
+            dataCache.delete(key);
+            console.log(`[CACHE] Removida entrada de dados expirada: ${key}`);
         }
     }
 };
@@ -870,20 +914,79 @@ app.post('/api/upload-curriculums', upload.array('curriculumFiles'), async (req,
         const jobInfo = await baserowServer.getRow(VAGAS_TABLE_ID, parseInt(jobId));
         const userInfo = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
         if (N8N_TRIAGEM_WEBHOOK_URL && newCandidateEntries.length > 0 && jobInfo && userInfo) {
+            // Mapear candidatos com informações completas
             const candidatosParaWebhook = newCandidateEntries.map(candidate => ({
                 id: candidate.id,
                 nome: candidate.nome,
                 email: candidate.email,
                 telefone: candidate.telefone,
                 curriculo_url: candidate.curriculo?.[0]?.url,
-                status: candidate.status
+                curriculo_nome: candidate.curriculo?.[0]?.name,
+                status: candidate.status,
+                score: candidate.score || null,
+                resumo_ia: candidate.resumo_ia || null,
+                data_triagem: candidate.data_triagem || null,
+                sexo: candidate.sexo || null,
+                escolaridade: candidate.escolaridade || null,
+                idade: candidate.idade || null,
+                ultima_atualizacao: candidate.ultima_atualizacao || null
             }));
+            // Processar requisitos_json da vaga para análise completa
+            let requisitosCompletos = {};
+            try {
+                if (jobInfo.requisitos_json) {
+                    requisitosCompletos = JSON.parse(jobInfo.requisitos_json);
+                }
+            }
+            catch (error) {
+                console.warn('[WEBHOOK] Erro ao parsear requisitos_json:', error);
+            }
             const webhookPayload = {
                 tipo: 'triagem_curriculo_lote',
-                recrutador: { id: userInfo.id, nome: userInfo.nome, email: userInfo.Email, empresa: userInfo.empresa },
-                vaga: { id: jobInfo.id, titulo: jobInfo.titulo, descricao: jobInfo.descricao, endereco: jobInfo.Endereco, requisitos_obrigatorios: jobInfo.requisitos_obrigatorios, requisitos_desejaveis: jobInfo.requisitos_desejaveis },
-                candidatos: candidatosParaWebhook
+                timestamp: new Date().toISOString(),
+                recrutador: {
+                    id: userInfo.id,
+                    nome: userInfo.nome,
+                    email: userInfo.Email,
+                    empresa: userInfo.empresa,
+                    telefone: userInfo.telefone || null
+                },
+                vaga: {
+                    id: jobInfo.id,
+                    titulo: jobInfo.titulo,
+                    descricao: jobInfo.descricao,
+                    endereco: jobInfo.Endereco,
+                    // Campos estruturados dos requisitos JSON
+                    requisitos_json: requisitosCompletos,
+                    modo_trabalho: requisitosCompletos.modo_trabalho || null,
+                    escolaridade_minima: requisitosCompletos.escolaridade || null,
+                    experiencia_minima: requisitosCompletos.experiencia_anos || null,
+                    salario_minimo: requisitosCompletos.salario_minimo || null,
+                    salario_maximo: requisitosCompletos.salario_maximo || null,
+                    habilidades_requeridas: requisitosCompletos.habilidades || [],
+                    idiomas_requeridos: requisitosCompletos.idiomas || [],
+                    certificacoes_requeridas: requisitosCompletos.certificacoes || [],
+                    // Manter compatibilidade com campos antigos
+                    requisitos_obrigatorios: jobInfo.requisitos_obrigatorios || null,
+                    requisitos_desejaveis: jobInfo.requisitos_desejaveis || null,
+                    criado_em: jobInfo.criado_em || null
+                },
+                candidatos: candidatosParaWebhook,
+                // Metadados para análise da IA
+                metadata: {
+                    total_candidatos: candidatosParaWebhook.length,
+                    origem: 'upload_curriculos',
+                    versao_api: '2.0'
+                }
             };
+            // Log de debug para verificar payload
+            console.log('[WEBHOOK TRIAGEM] Enviando payload atualizado:', {
+                tipo: webhookPayload.tipo,
+                vaga_id: webhookPayload.vaga.id,
+                total_candidatos: webhookPayload.candidatos.length,
+                modo_trabalho: webhookPayload.vaga.modo_trabalho,
+                requisitos_estruturados: Object.keys(webhookPayload.vaga.requisitos_json || {}).length > 0
+            });
             const n8nResponse = await fetch(N8N_TRIAGEM_WEBHOOK_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -905,31 +1008,63 @@ app.post('/api/upload-curriculums', upload.array('curriculumFiles'), async (req,
         res.status(500).json({ success: false, message: error.message || 'Falha ao fazer upload dos currículos.' });
     }
 });
-// Rota alternativa para upload de currículos (compatibilidade com frontend)
+// Rota alternativa para upload de currículos OTIMIZADA (compatibilidade com frontend)
 app.post('/api/upload', upload.any(), async (req, res) => {
-    console.log('[UPLOAD DEBUG] Dados recebidos:', {
+    console.log('[UPLOAD OTIMIZADO] ==> INÍCIO DO PROCESSAMENTO');
+    const startTime = Date.now();
+    console.log('[UPLOAD OTIMIZADO] Dados recebidos:', {
         body: req.body,
         files: req.files ? req.files.length : 0,
         filesInfo: req.files ? req.files.map(f => ({ name: f.originalname, size: f.size, fieldname: f.fieldname })) : []
     });
     const { jobId, userId } = req.body;
     const files = req.files;
-    console.log('[UPLOAD DEBUG] Parâmetros extraídos:', { jobId, userId, filesCount: files?.length || 0 });
+    console.log('[UPLOAD OTIMIZADO] Parâmetros extraídos:', { jobId, userId, filesCount: files?.length || 0 });
     if (!jobId || !userId || !files || files.length === 0) {
-        console.log('[UPLOAD DEBUG] Erro: parâmetros obrigatórios faltando');
+        console.log('[UPLOAD OTIMIZADO] Erro: parâmetros obrigatórios faltando');
         return res.status(400).json({ error: 'Vaga, usuário e arquivos de currículo são obrigatórios.' });
     }
     try {
-        const newCandidateEntries = [];
-        const filesWithBase64 = []; // Para armazenar arquivo + base64
+        // 🚀 OTIMIZAÇÃO 1: Buscar dados da vaga e usuário em paralelo COM CACHE
+        console.log('[UPLOAD OTIMIZADO] Buscando dados da vaga e usuário em paralelo (com cache)...');
+        const [jobInfo, userInfo] = await Promise.all([
+            getCachedData(`job_${jobId}`, () => baserowServer.getRow(VAGAS_TABLE_ID, parseInt(jobId))),
+            getCachedData(`user_${userId}`, () => baserowServer.getRow(USERS_TABLE_ID, parseInt(userId)))
+        ]);
+        if (!jobInfo || !userInfo) {
+            throw new Error('Vaga ou usuário não encontrado');
+        }
+        // 🚀 OTIMIZAÇÃO 2: Validar arquivos e processar uploads em paralelo
+        console.log('[UPLOAD OTIMIZADO] Validando e processando arquivos em paralelo...');
+        // Validar tamanhos primeiro (rápido)
         for (const file of files) {
             if (file.size > 5 * 1024 * 1024) {
-                return res.status(400).json({ success: false, message: `O arquivo '${file.originalname}' é muito grande. O limite é de 5MB.` });
+                return res.status(400).json({
+                    success: false,
+                    message: `O arquivo '${file.originalname}' é muito grande. O limite é de 5MB.`
+                });
             }
-            // Converter arquivo para base64
-            const base64Content = file.buffer.toString('base64');
-            console.log(`[UPLOAD DEBUG] Base64 gerado para ${file.originalname}, tamanho: ${base64Content.length} chars`);
-            const uploadedFile = await baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype);
+        }
+        // Processar uploads e conversão base64 em paralelo
+        const uploadPromises = files.map(async (file) => {
+            // Processar upload e base64 em paralelo
+            const [uploadedFile, base64Content] = await Promise.all([
+                baserowServer.uploadFileFromBuffer(file.buffer, file.originalname, file.mimetype),
+                Promise.resolve(file.buffer.toString('base64'))
+            ]);
+            console.log(`[UPLOAD OTIMIZADO] Arquivo processado: ${file.originalname}, base64: ${base64Content.length} chars`);
+            return {
+                file,
+                uploadedFile,
+                base64: base64Content
+            };
+        });
+        // Aguardar todos os uploads em paralelo
+        const uploadResults = await Promise.all(uploadPromises);
+        console.log(`[UPLOAD OTIMIZADO] ${uploadResults.length} arquivos processados em paralelo`);
+        // 🚀 OTIMIZAÇÃO 3: Criar candidatos em paralelo
+        console.log('[UPLOAD OTIMIZADO] Criando candidatos em paralelo...');
+        const candidatePromises = uploadResults.map(async ({ file, uploadedFile, base64 }) => {
             const newCandidateData = {
                 nome: file.originalname.split('.')[0] || 'Novo Candidato',
                 curriculo: [{ name: uploadedFile.name, url: uploadedFile.url }],
@@ -940,30 +1075,55 @@ app.post('/api/upload', upload.any(), async (req, res) => {
                 status: 'Triagem',
             };
             const createdCandidate = await baserowServer.post(CANDIDATOS_TABLE_ID, newCandidateData);
-            newCandidateEntries.push(createdCandidate);
-            // Armazenar arquivo com base64 para o webhook
-            filesWithBase64.push({
-                originalname: file.originalname,
-                mimetype: file.mimetype,
-                size: file.size,
-                base64: base64Content,
-                candidateId: createdCandidate.id
-            });
-        }
-        const jobInfo = await baserowServer.getRow(VAGAS_TABLE_ID, parseInt(jobId));
-        const userInfo = await baserowServer.getRow(USERS_TABLE_ID, parseInt(userId));
-        if (N8N_TRIAGEM_WEBHOOK_URL && newCandidateEntries.length > 0 && jobInfo && userInfo) {
+            // Retornar candidato com dados do arquivo para webhook
+            return {
+                candidate: createdCandidate,
+                fileData: {
+                    originalname: file.originalname,
+                    mimetype: file.mimetype,
+                    size: file.size,
+                    base64: base64,
+                    candidateId: createdCandidate.id
+                }
+            };
+        });
+        // Aguardar criação de todos os candidatos
+        const candidateResults = await Promise.all(candidatePromises);
+        const newCandidateEntries = candidateResults.map(r => r.candidate);
+        const filesWithBase64 = candidateResults.map(r => r.fileData);
+        console.log(`[UPLOAD OTIMIZADO] ${newCandidateEntries.length} candidatos criados em paralelo`);
+        // 🚀 OTIMIZAÇÃO 4: Preparar webhook payload otimizado
+        if (N8N_TRIAGEM_WEBHOOK_URL && newCandidateEntries.length > 0) {
+            console.log('[UPLOAD OTIMIZADO] Preparando payload otimizado para webhook...');
+            // Processar requisitos_json uma única vez
+            let requisitosCompletos = {};
+            try {
+                if (jobInfo.requisitos_json) {
+                    requisitosCompletos = JSON.parse(jobInfo.requisitos_json);
+                }
+            }
+            catch (error) {
+                console.warn('[WEBHOOK] Erro ao parsear requisitos_json:', error);
+            }
+            // Mapear candidatos para webhook de forma otimizada
             const candidatosParaWebhook = newCandidateEntries.map(candidate => {
-                // Encontrar o arquivo base64 correspondente ao candidato
                 const fileData = filesWithBase64.find(f => f.candidateId === candidate.id);
                 return {
                     id: candidate.id,
                     nome: candidate.nome,
-                    email: candidate.email,
-                    telefone: candidate.telefone,
+                    email: candidate.email || null,
+                    telefone: candidate.telefone || null,
                     curriculo_url: candidate.curriculo?.[0]?.url,
+                    curriculo_nome: candidate.curriculo?.[0]?.name,
                     status: candidate.status,
-                    // Adicionar dados do arquivo base64
+                    score: candidate.score || null,
+                    resumo_ia: candidate.resumo_ia || null,
+                    data_triagem: candidate.data_triagem || null,
+                    sexo: candidate.sexo || null,
+                    escolaridade: candidate.escolaridade || null,
+                    idade: candidate.idade || null,
+                    ultima_atualizacao: candidate.ultima_atualizacao || null,
+                    // Dados do arquivo otimizados
                     arquivo: fileData ? {
                         nome: fileData.originalname,
                         tipo: fileData.mimetype,
@@ -972,35 +1132,108 @@ app.post('/api/upload', upload.any(), async (req, res) => {
                     } : null
                 };
             });
-            console.log('[UPLOAD DEBUG] Payload sendo enviado para N8N:', {
-                candidatos: candidatosParaWebhook.length,
-                temBase64: candidatosParaWebhook.some(c => c.arquivo?.base64)
-            });
             const webhookPayload = {
-                tipo: 'triagem_curriculo_lote',
-                recrutador: { id: userInfo.id, nome: userInfo.nome, email: userInfo.Email, empresa: userInfo.empresa },
-                vaga: { id: jobInfo.id, titulo: jobInfo.titulo, descricao: jobInfo.descricao, endereco: jobInfo.Endereco, requisitos_obrigatorios: jobInfo.requisitos_obrigatorios, requisitos_desejaveis: jobInfo.requisitos_desejaveis },
-                candidatos: candidatosParaWebhook
+                tipo: 'triagem_curriculo_lote_otimizado',
+                timestamp: new Date().toISOString(),
+                performance: {
+                    tempo_upload: Date.now() - startTime,
+                    total_arquivos: files.length,
+                    tamanho_total: files.reduce((acc, f) => acc + f.size, 0)
+                },
+                recrutador: {
+                    id: userInfo.id,
+                    nome: userInfo.nome,
+                    email: userInfo.Email,
+                    empresa: userInfo.empresa,
+                    telefone: userInfo.telefone || null
+                },
+                vaga: {
+                    id: jobInfo.id,
+                    titulo: jobInfo.titulo,
+                    descricao: jobInfo.descricao,
+                    endereco: jobInfo.Endereco,
+                    // Campos estruturados dos requisitos JSON
+                    requisitos_json: requisitosCompletos,
+                    modo_trabalho: requisitosCompletos.modo_trabalho || null,
+                    escolaridade_minima: requisitosCompletos.escolaridade || null,
+                    experiencia_minima: requisitosCompletos.experiencia_anos || null,
+                    salario_minimo: requisitosCompletos.salario_minimo || null,
+                    salario_maximo: requisitosCompletos.salario_maximo || null,
+                    habilidades_requeridas: requisitosCompletos.habilidades || [],
+                    idiomas_requeridos: requisitosCompletos.idiomas || [],
+                    certificacoes_requeridas: requisitosCompletos.certificacoes || [],
+                    // Manter compatibilidade com campos antigos
+                    requisitos_obrigatorios: jobInfo.requisitos_obrigatorios || null,
+                    requisitos_desejaveis: jobInfo.requisitos_desejaveis || null,
+                    criado_em: jobInfo.criado_em || null
+                },
+                candidatos: candidatosParaWebhook,
+                // Metadados para análise da IA
+                metadata: {
+                    total_candidatos: candidatosParaWebhook.length,
+                    origem: 'upload_curriculos_otimizado',
+                    versao_api: '2.1',
+                    tem_arquivos_base64: candidatosParaWebhook.some(c => c.arquivo?.base64),
+                    otimizacoes_aplicadas: ['upload_paralelo', 'criacao_paralela', 'busca_paralela']
+                }
             };
+            console.log('[UPLOAD OTIMIZADO] Enviando webhook SÍNCRONO para N8N...', {
+                candidatos: candidatosParaWebhook.length,
+                temBase64: candidatosParaWebhook.some(c => c.arquivo?.base64),
+                tempo_preparacao: Date.now() - startTime
+            });
+            // 🎯 MANTÉM FLUXO SÍNCRONO - Aguarda resposta do N8N
             const n8nResponse = await fetch(N8N_TRIAGEM_WEBHOOK_URL, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Processing-Mode': 'optimized',
+                    'X-Batch-Size': candidatosParaWebhook.length.toString(),
+                    'X-Upload-Time': (Date.now() - startTime).toString()
+                },
                 body: JSON.stringify(webhookPayload)
             });
             if (!n8nResponse.ok) {
                 const errorText = await n8nResponse.text();
                 throw new Error(`O N8N respondeu com um erro na triagem: ${n8nResponse.statusText} - ${errorText}`);
             }
+            // 🎯 AGUARDA PROCESSAMENTO COMPLETO DA IA
             const updatedCandidatesResponse = await n8nResponse.json();
-            res.json({ success: true, message: `${files.length} currículo(s) analisado(s) com sucesso!`, newCandidates: updatedCandidatesResponse.candidates || [] });
+            const processingTime = Date.now() - startTime;
+            console.log(`[UPLOAD OTIMIZADO] ✅ Processamento COMPLETO em ${processingTime}ms`);
+            // Resposta apenas após processamento completo
+            res.json({
+                success: true,
+                message: `${files.length} currículo(s) analisado(s) com sucesso!`,
+                newCandidates: updatedCandidatesResponse.candidates || [],
+                performance: {
+                    tempo_total: processingTime,
+                    candidatos_processados: newCandidateEntries.length,
+                    melhorias: ['upload_paralelo', 'criacao_paralela', 'webhook_otimizado']
+                }
+            });
         }
         else {
-            res.json({ success: true, message: `${files.length} currículo(s) enviado(s), mas não foram para análise.`, newCandidates: newCandidateEntries });
+            const processingTime = Date.now() - startTime;
+            console.log(`[UPLOAD OTIMIZADO] Processamento sem webhook em ${processingTime}ms`);
+            res.json({
+                success: true,
+                message: `${files.length} currículo(s) enviado(s), mas não foram para análise.`,
+                newCandidates: newCandidateEntries,
+                performance: {
+                    tempo_total: processingTime,
+                    candidatos_criados: newCandidateEntries.length
+                }
+            });
         }
     }
     catch (error) {
-        console.error('Erro no upload de currículos (backend /api/upload):', error);
-        res.status(500).json({ success: false, message: error.message || 'Falha ao fazer upload dos currículos.' });
+        const processingTime = Date.now() - startTime;
+        console.error(`[UPLOAD OTIMIZADO] ❌ Erro após ${processingTime}ms:`, error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Falha ao fazer upload dos currículos.'
+        });
     }
 });
 app.get('/api/schedules/:userId', async (req, res) => {
