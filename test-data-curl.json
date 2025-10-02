@@ -1,8 +1,0 @@
-{
-  "titulo": "TESTE MODO TRABALHO CURL",
-  "descricao": "Teste de criação via curl",
-  "endereco": "São Paulo, SP",
-  "modo_trabalho": "remoto",
-  "requisitos_json": "{\"idade\":{\"min\":\"20\",\"max\":\"40\"}}",
-  "usuario": [1]
-}
