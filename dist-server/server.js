@@ -17,6 +17,7 @@ import { baserowServer } from './src/shared/services/baserowServerClient.js';
 import fetch from 'node-fetch';
 import bcrypt from 'bcryptjs';
 import multer from 'multer';
+import OpenAI from 'openai';
 const app = express();
 const port = process.env.PORT || 3001;
 // Configuração do Multer para upload de ficheiros em memória
@@ -184,11 +185,234 @@ const SALT_ROUNDS = 10;
 const TESTE_COMPORTAMENTAL_TABLE_ID = '727';
 const PROVAS_TEORICAS_MODELOS_TABLE_ID = '729';
 const PROVAS_TEORICAS_APLICADAS_TABLE_ID = '730';
+// 🤖 Auto-Match Tables
+const AUTO_MATCH_CONFIGS_TABLE_ID = '731';
+const AUTO_MATCH_RESULTS_TABLE_ID = '732';
+const AUTO_MATCH_ANALYTICS_TABLE_ID = '733';
 const TESTE_COMPORTAMENTAL_WEBHOOK_URL = process.env.TESTE_COMPORTAMENTAL_WEBHOOK_URL;
 const N8N_TRIAGEM_WEBHOOK_URL = process.env.N8N_FILE_UPLOAD_URL;
 const N8N_EMAIL_WEBHOOK_URL = process.env.N8N_EMAIL_WEBHOOK_URL;
 const N8N_THEORETICAL_WEBHOOK_URL = process.env.N8N_THEORETICAL_WEBHOOK_URL;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://recrutamentoia.com.br';
+// ==================================================================
+// 🤖 OPENAI AUTO-MATCH SERVICE
+// ==================================================================
+// Inicializar OpenAI
+const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY
+});
+// Serviço de Auto-Match com IA
+class AutoMatchService {
+    /**
+     * Analisa compatibilidade entre vaga e candidato usando GPT-4o-mini
+     */
+    async analyzeJobCandidateMatch(job, candidate) {
+        try {
+            const prompt = this.buildIntelligentPrompt(job, candidate);
+            console.log(`🤖 [AUTO-MATCH] Analisando candidato ${candidate.nome} para vaga ${job.titulo || job.cargo}`);
+            const response = await openai.chat.completions.create({
+                model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+                messages: [
+                    {
+                        role: "system",
+                        content: `Você é um especialista sênior em Recrutamento e Seleção com 15 anos de experiência. 
+Sua missão é analisar a compatibilidade entre candidatos e vagas de forma criteriosa, justa e baseada em dados.
+Siga EXATAMENTE as instruções de pontuação fornecidas.
+Retorne SEMPRE um JSON válido com formato: {"score": número, "resumo": "texto"}`
+                    },
+                    {
+                        role: "user",
+                        content: prompt
+                    }
+                ],
+                max_tokens: parseInt(process.env.OPENAI_MAX_TOKENS || '4000'),
+                temperature: parseFloat(process.env.OPENAI_TEMPERATURE || '0.3'),
+                response_format: { type: "json_object" }
+            });
+            const analysis = JSON.parse(response.choices[0].message.content || '{}');
+            // Novo formato simplificado: {score, resumo}
+            const score = analysis.score || 0;
+            const resumo = analysis.resumo || 'Análise não disponível';
+            console.log(`✅ [AUTO-MATCH] Score: ${score}% para ${candidate.nome}`);
+            return {
+                score: score,
+                reasons: [resumo], // Usar o resumo como razão única
+                suggestedActions: score >= 70 ? ['Agendar entrevista', 'Verificar disponibilidade'] : ['Revisar requisitos', 'Considerar outras vagas'],
+                concerns: score < 70 ? ['Score abaixo do mínimo recomendado'] : [],
+                detailedAnalysis: resumo,
+                fitAnalysis: {
+                    technical: score,
+                    cultural: score,
+                    experience: score,
+                    location: score,
+                    salary: score
+                }
+            };
+        }
+        catch (error) {
+            console.error('❌ [AUTO-MATCH] Erro na análise OpenAI:', error);
+            throw new Error('Falha na análise de compatibilidade com IA');
+        }
+    }
+    /**
+     * Constrói prompt inteligente usando dados estruturados (mesma estrutura do N8N)
+     */
+    buildIntelligentPrompt(job, candidate) {
+        // Extrair requisitos da vaga (requisitos_json - criado pela campanha)
+        let requisitosVaga = {};
+        try {
+            requisitosVaga = job.requisitos_json ? JSON.parse(job.requisitos_json) : {};
+        }
+        catch (e) {
+            console.error('[AUTO-MATCH] Erro ao parsear requisitos_json:', e);
+            requisitosVaga = {};
+        }
+        // Extrair cv_completo do candidato (JSON estruturado pelo N8N)
+        let cvCandidato = {};
+        if (candidate.cv_completo && candidate.cv_completo.trim()) {
+            try {
+                cvCandidato = JSON.parse(candidate.cv_completo);
+                console.log('[AUTO-MATCH] ✅ cv_completo parseado com sucesso');
+            }
+            catch (e) {
+                console.warn('[AUTO-MATCH] ⚠️ cv_completo não é JSON válido, usando como texto');
+                cvCandidato = {
+                    nome: candidate.nome,
+                    texto_cv: candidate.cv_completo
+                };
+            }
+        }
+        else {
+            // Não deveria chegar aqui, pois checamos antes
+            console.error('[AUTO-MATCH] ❌ cv_completo vazio - esse candidato deveria ter sido pulado!');
+            cvCandidato = { erro: 'CV não disponível' };
+        }
+        return `
+# 🎯 AUTO-MATCH: Análise de Compatibilidade Candidato x Vaga
+
+## 📋 REQUISITOS DA VAGA
+${JSON.stringify(requisitosVaga, null, 2)}
+
+## 👤 PERFIL DO CANDIDATO
+${JSON.stringify(cvCandidato, null, 2)}
+
+---
+
+## ✅ SUA TAREFA
+Analise a compatibilidade entre o candidato e a vaga, calculando um score de 0-100.
+
+## 📊 CRITÉRIOS DE AVALIAÇÃO (100 pontos)
+
+### 1️⃣ FORMAÇÃO E ESCOLARIDADE (25 pontos)
+- Atende ou supera escolaridade exigida: **25 pontos**
+- Escolaridade próxima (1 nível abaixo): **18 pontos**
+- Formação em área relacionada: **+5 pontos extras**
+- Sem formação mínima: **10 pontos**
+
+### 2️⃣ EXPERIÊNCIA PROFISSIONAL (35 pontos)
+- Experiência direta na função/cargo: **35 pontos**
+- Experiência em função similar/transferível: **28 pontos**
+- Experiência parcial (algumas responsabilidades): **20 pontos**
+- Pouca/nenhuma experiência relevante: **8 pontos**
+
+### 3️⃣ HABILIDADES E COMPETÊNCIAS (20 pontos)
+- Possui todas habilidades técnicas listadas: **20 pontos**
+- Possui 70%+ das habilidades: **16 pontos**
+- Possui 50%+ das habilidades: **12 pontos**
+- Habilidades mínimas: **6 pontos**
+
+### 4️⃣ LOCALIZAÇÃO E DISPONIBILIDADE (10 pontos)
+- Vaga remota OU mesma cidade: **10 pontos**
+- Mesmo estado/região: **7 pontos**
+- Disposição para mudança: **7 pontos**
+- Outro estado (presencial): **3 pontos**
+
+### 5️⃣ DIFERENCIAIS (10 pontos)
+- Cursos complementares relevantes: **+3 pontos**
+- Certificações na área: **+3 pontos**
+- Idiomas necessários: **+2 pontos**
+- Experiência adicional valiosa: **+2 pontos**
+
+## 🎯 INTERPRETAÇÃO DO SCORE
+- **80-100**: EXCELENTE - Candidato ideal, atende todos requisitos
+- **65-79**: BOM - Candidato forte, atende maioria dos requisitos  
+- **50-64**: ADEQUADO - Candidato viável, atende requisitos mínimos
+- **30-49**: PARCIAL - Falta experiência/qualificação importante
+- **0-29**: INCOMPATÍVEL - Perfil não adequado para a vaga
+
+## ⚠️ DIRETRIZES IMPORTANTES
+
+✅ **SEJA GENEROSO com candidatos que:**
+- Têm experiência transferível (área similar)
+- Mostram evolução de carreira consistente
+- Possuem 70%+ dos requisitos principais
+- Têm boa formação + cursos complementares
+
+❌ **SEJA CRITERIOSO com candidatos que:**
+- Não têm experiência mínima na área
+- Escolaridade muito abaixo do exigido
+- Faltam habilidades técnicas críticas
+- Localização incompatível (vaga presencial)
+
+## 💡 REGRAS ESPECIAIS
+
+1. **Se requisitos_json estiver vazio/incompleto**: avalie pelo título e descrição da vaga
+2. **Se cv_completo estiver incompleto**: use dados disponíveis sem penalizar excessivamente
+3. **Experiência similar = 80-90% do valor de experiência exata**
+4. **Falta de 1-2 requisitos desejáveis ≠ reprovação automática**
+5. **Candidato com 75% dos requisitos = score mínimo de 60**
+
+## 📤 FORMATO DE SAÍDA (JSON ESTRITO)
+{
+  "score": <número inteiro 0-100>,
+  "resumo": "<Análise de 5-7 linhas: requisitos atendidos, pontos fortes, gaps identificados, recomendação APTO/PARCIAL/INADEQUADO>"
+}
+`;
+    }
+    /**
+     * Atualiza candidato com score e vincula à vaga se for um bom match (≥60%)
+     */
+    async updateCandidateScore(candidateId, jobId, score, analysis, fitAnalysis) {
+        try {
+            // Buscar candidato atual para pegar vagas existentes
+            const currentCandidate = await baserowServer.getRow(CANDIDATOS_TABLE_ID, candidateId);
+            // Preparar atualização base
+            const updateData = {
+                score_automatch: score,
+                avaliacao_ia_automatch: analysis,
+                fit_technical: fitAnalysis.technical,
+                fit_cultural: fitAnalysis.cultural,
+                fit_experience: fitAnalysis.experience,
+                fit_location: fitAnalysis.location,
+                fit_salary: fitAnalysis.salary,
+                data_ultima_analise: new Date().toISOString()
+            };
+            // Se score ≥60%, vincular candidato à vaga e atualizar score geral
+            const minScoreForMatch = parseInt(process.env.AUTO_MATCH_MIN_SCORE || '60');
+            if (score >= minScoreForMatch) {
+                // Adicionar vaga ao candidato (manter vagas existentes + nova)
+                const existingJobs = currentCandidate.vaga || [];
+                const existingJobIds = Array.isArray(existingJobs)
+                    ? existingJobs.map((j) => j.id)
+                    : [];
+                // Adicionar nova vaga se ainda não estiver vinculada
+                if (!existingJobIds.includes(jobId)) {
+                    updateData.vaga = [...existingJobIds, jobId];
+                    console.log(`🔗 [AUTO-MATCH] Vinculando candidato ${candidateId} à vaga ${jobId}`);
+                }
+                // Atualizar score geral do candidato
+                updateData.score = score;
+                console.log(`✅ [AUTO-MATCH] Match ≥${minScoreForMatch}%! Candidato ${candidateId}: score=${score}%, vaga=${jobId}`);
+            }
+            await baserowServer.patch(CANDIDATOS_TABLE_ID, candidateId, updateData);
+        }
+        catch (error) {
+            console.error(`❌ [AUTO-MATCH] Erro ao atualizar candidato ${candidateId}:`, error);
+            // Não lançar erro para não interromper o processo
+        }
+    }
+}
+const autoMatchService = new AutoMatchService();
 app.post('/api/auth/signup', async (req, res) => {
     const { nome, empresa, telefone, email, password } = req.body;
     if (!email || !password || !nome) {
@@ -765,6 +989,323 @@ app.delete('/api/candidates/:candidateId', async (req, res) => {
 });
 // ==================================================================
 // === FIM DAS NOVAS FUNCIONALIDADES (FASE 1) =========================
+// ==================================================================
+// ==================================================================
+// 🤖 AUTO-MATCH COM OPENAI - ENDPOINTS
+// ==================================================================
+/**
+ * 🧪 ENDPOINT DE TESTE: Analisar UM candidato específico
+ * POST /api/auto-match/test-one
+ */
+app.post('/api/auto-match/test-one', async (req, res) => {
+    const { jobId, candidateId } = req.body;
+    try {
+        console.log(`\n🧪 [TEST] Analisando candidato ${candidateId} para vaga ${jobId}\n`);
+        // Buscar vaga e candidato
+        const job = await baserowServer.getRow(VAGAS_TABLE_ID, jobId);
+        const candidate = await baserowServer.getRow(CANDIDATOS_TABLE_ID, candidateId);
+        if (!job || !candidate) {
+            return res.status(404).json({ error: 'Vaga ou candidato não encontrado' });
+        }
+        console.log('📋 VAGA:', {
+            titulo: job.titulo,
+            endereco: job.endereco,
+            modo_trabalho: job.modo_trabalho,
+            requisitos_json: job.requisitos_json
+        });
+        console.log('👤 CANDIDATO:', {
+            nome: candidate.nome,
+            cidade: candidate.cidade,
+            estado: candidate.estado,
+            escolaridade: candidate.escolaridade,
+            cv_completo: candidate.cv_completo?.substring(0, 200) + '...'
+        });
+        // Executar análise
+        const analysis = await autoMatchService.analyzeJobCandidateMatch(job, candidate);
+        console.log('\n✅ RESULTADO:', {
+            score: analysis.score,
+            resumo: analysis.detailedAnalysis
+        });
+        res.json({
+            success: true,
+            job: { titulo: job.titulo },
+            candidate: { nome: candidate.nome },
+            analysis: {
+                score: analysis.score,
+                resumo: analysis.detailedAnalysis,
+                reasons: analysis.reasons,
+                concerns: analysis.concerns
+            }
+        });
+    }
+    catch (error) {
+        console.error('❌ [TEST] Erro:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+/**
+ * Endpoint principal: Executar Auto-Match com IA
+ * POST /api/auto-match/execute
+ */
+app.post('/api/auto-match/execute', async (req, res) => {
+    const { jobId, userId } = req.body;
+    const startTime = Date.now();
+    try {
+        console.log(`\n🎯 [AUTO-MATCH] ========================================`);
+        console.log(`🎯 [AUTO-MATCH] Iniciando para vaga ${jobId}, usuário ${userId}`);
+        console.log(`🎯 [AUTO-MATCH] ========================================\n`);
+        // Validar se OpenAI está configurado
+        if (!process.env.OPENAI_API_KEY) {
+            console.error('❌ [AUTO-MATCH] OPENAI_API_KEY não configurada!');
+            return res.status(500).json({
+                success: false,
+                error: 'OpenAI API Key não configurada. Configure OPENAI_API_KEY no arquivo .env'
+            });
+        }
+        // 1. Buscar dados da vaga
+        console.log(`📋 [AUTO-MATCH] Buscando vaga ID ${jobId}...`);
+        const job = await baserowServer.getRow(VAGAS_TABLE_ID, jobId);
+        if (!job) {
+            console.error(`❌ [AUTO-MATCH] Vaga ${jobId} não encontrada`);
+            return res.status(404).json({
+                success: false,
+                error: 'Vaga não encontrada'
+            });
+        }
+        console.log(`📋 [AUTO-MATCH] Vaga: ${job.titulo || job.cargo}`);
+        // 2. Buscar TODOS os candidatos do usuário no banco de talentos (com paginação)
+        // Excluir status "contratado" no código (Baserow single_select não suporta not_equal)
+        console.log(`🔍 [AUTO-MATCH] Buscando TODOS os candidatos do banco de talentos...`);
+        let allCandidates = [];
+        let page = 1;
+        let hasMore = true;
+        // Buscar todos os candidatos com paginação (limite de 200 por página)
+        while (hasMore) {
+            const candidatesResult = await baserowServer.get(CANDIDATOS_TABLE_ID, `?filter__usuario__link_row_has=${userId}&size=200&page=${page}`);
+            const results = candidatesResult.results || [];
+            allCandidates = [...allCandidates, ...results];
+            console.log(`   📄 Página ${page}: ${results.length} candidatos carregados (total acumulado: ${allCandidates.length})`);
+            // Verificar se há mais páginas
+            hasMore = candidatesResult.next !== null && results.length === 200;
+            page++;
+            // Limite de segurança para evitar loop infinito
+            if (page > 20) {
+                console.warn('⚠️ Limite de 20 páginas atingido (4000 candidatos). Interrompendo busca.');
+                break;
+            }
+        }
+        // Filtrar candidatos: excluir "contratado"
+        const candidatesAtivos = allCandidates.filter(c => c.status !== 'contratado');
+        console.log(`👥 [AUTO-MATCH] Total no banco: ${allCandidates.length} candidatos`);
+        console.log(`👥 [AUTO-MATCH] Candidatos ativos (não contratados): ${candidatesAtivos.length}`);
+        // 🔍 DEBUG: Mostrar TODOS os campos do primeiro candidato
+        if (candidatesAtivos.length > 0) {
+            console.log(`\n🔍 [AUTO-MATCH] CAMPOS DO PRIMEIRO CANDIDATO:`, {
+                id: candidatesAtivos[0].id,
+                nome: candidatesAtivos[0].nome,
+                all_keys: Object.keys(candidatesAtivos[0]),
+                cv_fields: Object.keys(candidatesAtivos[0]).filter(k => k.toLowerCase().includes('cv')),
+                resumo_fields: Object.keys(candidatesAtivos[0]).filter(k => k.toLowerCase().includes('resumo'))
+            });
+        }
+        // Filtrar apenas candidatos COM cv_completo para análise
+        const candidatesParaAnalisar = candidatesAtivos.filter(c => c.cv_completo && c.cv_completo.trim());
+        console.log(`📋 [AUTO-MATCH] Candidatos COM cv_completo: ${candidatesParaAnalisar.length}/${candidatesAtivos.length}`);
+        if (candidatesParaAnalisar.length > 0) {
+            console.log(`📄 [AUTO-MATCH] Primeiros 3 candidatos que serão analisados:`, candidatesParaAnalisar.slice(0, 3).map(c => ({
+                id: c.id,
+                nome: c.nome,
+                cv_length: c.cv_completo.length,
+                cv_preview: c.cv_completo.substring(0, 100) + '...'
+            })));
+        }
+        if (candidatesParaAnalisar.length === 0) {
+            return res.json({
+                success: true,
+                data: {
+                    totalCandidatesAnalyzed: 0,
+                    matchesFound: 0,
+                    matches: [],
+                    timeSavedHours: 0,
+                    executionTime: 0,
+                    message: `Nenhum candidato com CV completo encontrado. Total de candidatos no banco: ${candidatesAtivos.length}`
+                }
+            });
+        }
+        console.log(`🤖 [AUTO-MATCH] Iniciando análise de ${candidatesParaAnalisar.length} candidatos com IA...`);
+        // 3. Analisar cada candidato com OpenAI
+        console.log(`\n🤖 [AUTO-MATCH] Iniciando análise com GPT-4o-mini...\n`);
+        const analysisPromises = candidatesParaAnalisar.map(async (candidate, index) => {
+            try {
+                console.log(`   [${index + 1}/${candidatesParaAnalisar.length}] Analisando: ${candidate.nome}...`);
+                // ⚠️ VERIFICAR SE CANDIDATO TEM cv_completo ANTES DE ANALISAR
+                if (!candidate.cv_completo || !candidate.cv_completo.trim()) {
+                    console.log(`   ⏭️ Pulando ${candidate.nome} - cv_completo vazio (score = 0)`);
+                    // Atualizar com score 0
+                    await autoMatchService.updateCandidateScore(candidate.id, jobId, 0, 'Candidato sem CV completo no sistema', { nota: 0, justificativa: 'CV não disponível' });
+                    return {
+                        candidateId: candidate.id,
+                        candidateName: candidate.nome,
+                        candidatePhone: candidate.telefone,
+                        candidateLocation: `${candidate.cidade || ''}${candidate.bairro ? ', ' + candidate.bairro : ''}`,
+                        compatibilityScore: 0,
+                        matchReasons: [],
+                        suggestedActions: ['Solicitar upload de CV completo'],
+                        riskFactors: ['CV não disponível'],
+                        fitAnalysis: { nota: 0, justificativa: 'CV não disponível' },
+                        detailedAnalysis: 'Candidato sem CV completo no sistema'
+                    };
+                }
+                // ✅ CANDIDATO TEM CV - ANALISAR COM IA
+                const analysis = await autoMatchService.analyzeJobCandidateMatch(job, candidate);
+                // 4. Atualizar candidato no banco com score, avaliação e vincular à vaga se bom match
+                await autoMatchService.updateCandidateScore(candidate.id, jobId, // Passar ID da vaga para vincular se score ≥60%
+                analysis.score, analysis.detailedAnalysis, analysis.fitAnalysis);
+                return {
+                    candidateId: candidate.id,
+                    candidateName: candidate.nome,
+                    candidatePhone: candidate.telefone,
+                    candidateLocation: `${candidate.cidade || ''}${candidate.bairro ? ', ' + candidate.bairro : ''}`,
+                    compatibilityScore: analysis.score,
+                    matchReasons: analysis.reasons,
+                    suggestedActions: analysis.suggestedActions,
+                    riskFactors: analysis.concerns,
+                    fitAnalysis: analysis.fitAnalysis,
+                    detailedAnalysis: analysis.detailedAnalysis
+                };
+            }
+            catch (error) {
+                console.error(`   ❌ Erro ao analisar ${candidate.nome}:`, error);
+                return null;
+            }
+        });
+        const analyses = await Promise.all(analysisPromises);
+        const validAnalyses = analyses.filter(a => a !== null);
+        // 📊 LOG DETALHADO DOS SCORES
+        console.log(`\n📊 [AUTO-MATCH] SCORES DETALHADOS:`);
+        validAnalyses.forEach((analysis, idx) => {
+            console.log(`   ${idx + 1}. ${analysis.candidateName}: ${analysis.compatibilityScore}%`);
+        });
+        console.log('');
+        // 5. Filtrar matches por score mínimo e ordenar
+        const minScore = parseInt(process.env.AUTO_MATCH_MIN_SCORE || '60');
+        const goodMatches = validAnalyses
+            .filter(analysis => analysis.compatibilityScore >= minScore)
+            .sort((a, b) => b.compatibilityScore - a.compatibilityScore);
+        console.log(`\n✅ [AUTO-MATCH] Análise concluída:`);
+        console.log(`   - Candidatos analisados: ${candidatesParaAnalisar.length}`);
+        console.log(`   - Matches encontrados (>=${minScore}%): ${goodMatches.length}`);
+        if (goodMatches.length > 0) {
+            console.log(`   - Melhor match: ${goodMatches[0].candidateName} (${goodMatches[0].compatibilityScore}%)`);
+        }
+        // 6. Salvar resultados na tabela auto_match_results
+        const savePromises = goodMatches.map(async (match) => {
+            return await baserowServer.post(AUTO_MATCH_RESULTS_TABLE_ID, {
+                job_id: jobId,
+                candidate_id: match.candidateId,
+                compatibility_score: match.compatibilityScore,
+                match_reasons: JSON.stringify(match.matchReasons),
+                risk_factors: JSON.stringify(match.riskFactors),
+                suggested_actions: JSON.stringify(match.suggestedActions),
+                fit_analysis: JSON.stringify(match.fitAnalysis),
+                detailed_analysis: match.detailedAnalysis,
+                user_contacted: false,
+                created_at: new Date().toISOString()
+            });
+        });
+        await Promise.all(savePromises);
+        // 7. Calcular métricas
+        const executionTime = Math.round((Date.now() - startTime) / 1000);
+        const timeSaved = Math.round((candidatesParaAnalisar.length * 0.15) * 100) / 100; // 9 min por candidato
+        const tokensUsed = candidatesParaAnalisar.length * 200; // Estimativa
+        // 8. Salvar analytics (com tratamento de erro) - SEM time_saved_hours
+        try {
+            await baserowServer.post(AUTO_MATCH_ANALYTICS_TABLE_ID, {
+                job_id: jobId,
+                user_id: userId,
+                total_candidates_scanned: candidatesParaAnalisar.length,
+                matches_found: goodMatches.length,
+                matches_contacted: 0,
+                popup_displayed: true,
+                openai_tokens_used: tokensUsed,
+                execution_time_seconds: executionTime,
+                created_at: new Date().toISOString()
+            });
+            console.log(`📊 [AUTO-MATCH] Analytics salvas com sucesso`);
+        }
+        catch (analyticsError) {
+            console.warn(`⚠️  [AUTO-MATCH] Falha ao salvar analytics (não crítico):`, analyticsError.message);
+            // Não interromper o fluxo se analytics falharem
+        }
+        console.log(`\n⏱️  [AUTO-MATCH] Tempo de execução: ${executionTime}s`);
+        console.log(`💰 [AUTO-MATCH] Tempo economizado: ~${timeSaved}h\n`);
+        res.json({
+            success: true,
+            data: {
+                totalCandidatesAnalyzed: candidatesParaAnalisar.length,
+                matchesFound: goodMatches.length,
+                matches: goodMatches.slice(0, 10), // Top 10
+                timeSavedHours: timeSaved,
+                executionTime
+            }
+        });
+    }
+    catch (error) {
+        const errorMessage = error?.message || 'Erro desconhecido';
+        console.error('❌ [AUTO-MATCH] Erro:', errorMessage);
+        console.error('❌ [AUTO-MATCH] Stack:', error?.stack);
+        res.status(500).json({
+            success: false,
+            error: 'Erro ao executar auto-match',
+            details: errorMessage
+        });
+    }
+});
+/**
+ * Buscar dados específicos de uma vaga
+ * GET /api/jobs/:jobId
+ */
+app.get('/api/jobs/:jobId', async (req, res) => {
+    const { jobId } = req.params;
+    try {
+        console.log(`🔍 Buscando vaga com ID: ${jobId} na tabela ${VAGAS_TABLE_ID}`);
+        const job = await baserowServer.getRow(VAGAS_TABLE_ID, parseInt(jobId));
+        console.log('✅ Vaga encontrada:', job?.id, job?.titulo || job?.cargo);
+        if (!job) {
+            console.log('❌ Vaga não encontrada');
+            return res.status(404).json({ error: 'Vaga não encontrada' });
+        }
+        res.json(job);
+    }
+    catch (error) {
+        console.error('❌ Erro ao buscar vaga:', error?.message || error);
+        console.error('Stack:', error?.stack);
+        res.status(500).json({
+            error: 'Erro ao buscar vaga',
+            details: error?.message || 'Erro desconhecido'
+        });
+    }
+});
+/**
+ * Buscar resultados de auto-match de uma vaga
+ * GET /api/auto-match/results/:jobId
+ */
+app.get('/api/auto-match/results/:jobId', async (req, res) => {
+    const { jobId } = req.params;
+    try {
+        const resultsData = await baserowServer.get(AUTO_MATCH_RESULTS_TABLE_ID, `?filter__job_id__equal=${jobId}`);
+        res.json({
+            success: true,
+            data: resultsData.results || []
+        });
+    }
+    catch (error) {
+        console.error('Erro ao buscar resultados auto-match:', error);
+        res.status(500).json({ error: 'Erro ao buscar resultados' });
+    }
+});
+// ==================================================================
+// === FIM AUTO-MATCH COM OPENAI ===================================
 // ==================================================================
 app.get('/api/data/all/:userId', async (req, res) => {
     const { userId } = req.params;

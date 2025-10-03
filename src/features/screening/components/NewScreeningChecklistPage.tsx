@@ -35,6 +35,7 @@ interface RequirementsData {
 }
 
 interface JobData {
+  id?: number; // ID retornado pelo Baserow
   titulo: string;
   endereco: string;
   modo_trabalho: 'presencial' | 'remoto' | 'hibrido';
@@ -336,8 +337,19 @@ const NewScreeningChecklistPage: React.FC<NewScreeningChecklistPageProps> = ({
 
       const createdJob = await response.json();
       console.log('✅ Vaga criada com sucesso:', createdJob);
+      console.log('🔑 ID da vaga retornado pelo Baserow:', createdJob.id);
+      console.log('📦 Objeto completo:', JSON.stringify(createdJob, null, 2));
 
-      onJobCreated(newJob);
+      // Passar o objeto com o ID real do Baserow
+      const jobWithId = {
+        ...newJob,
+        id: createdJob.id // ID real do Baserow
+      };
+      
+      console.log('📤 Chamando onJobCreated com:', jobWithId);
+      console.log('🆔 ID final sendo passado:', jobWithId.id);
+      
+      onJobCreated(jobWithId);
     } catch (error) {
       console.error('Erro ao criar vaga:', error);
     } finally {

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { LayoutGrid, List, UploadCloud, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
+import { LayoutGrid, List, UploadCloud, ChevronLeft, ChevronRight, AlertTriangle, Sparkles } from 'lucide-react';
 import CandidateTable from './CandidateTable';
 import KanbanBoard from './KanbanBoard';
 import { Candidate, CandidateStatus } from '../../../shared/types/index';
@@ -12,6 +12,7 @@ import { useDataStore } from '../../../shared/store/useDataStore';
 import UploadModal from './UploadModal';
 import VideoUploadModal from './VideoUploadModal';
 import RejectionReasonModal from './RejectionReasonModal';
+import { AutoMatchPopup } from '../../jobs/components/AutoMatchPopup';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -47,6 +48,11 @@ const ResultsPage: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadSuccessMessage, setUploadSuccessMessage] = useState<string | null>(null);
   const [uploadErrorMessage, setUploadErrorMessage] = useState<string | null>(null);
+
+  // Estados para Auto-Match
+  const [showAutoMatchPopup, setShowAutoMatchPopup] = useState(false);
+  const [autoMatchResults, setAutoMatchResults] = useState<any>(null);
+  const [executingAutoMatch, setExecutingAutoMatch] = useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -344,6 +350,77 @@ const ResultsPage: React.FC = () => {
       setIsUploading(false);
     }
   };
+
+  // Função para executar Auto-Match
+  const handleExecuteAutoMatch = async () => {
+    if (!profile || !jobId || executingAutoMatch) {
+      console.log('⚠️ Auto-Match bloqueado:', { profile: !!profile, jobId, executingAutoMatch });
+      return;
+    }
+    
+    console.log('🚀 Iniciando Auto-Match...', { jobId, userId: profile.id });
+    setExecutingAutoMatch(true);
+    
+    try {
+      console.log('📡 Fazendo requisição para:', `${API_BASE_URL}/api/auto-match/execute`);
+      
+      const response = await fetch(`${API_BASE_URL}/api/auto-match/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          jobId: parseInt(jobId),
+          userId: profile.id 
+        })
+      });
+
+      console.log('📥 Resposta recebida:', { status: response.status, ok: response.ok });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('❌ Erro na resposta:', errorData);
+        throw new Error(`Erro ${response.status}: ${errorData.error || response.statusText}`);
+      }
+
+      const results = await response.json();
+      console.log('📊 Resultados:', results);
+      
+      if (results.success) {
+        console.log('✅ Auto-Match concluído!', {
+          candidatosAnalisados: results.data.totalCandidatesAnalyzed,
+          matchesEncontrados: results.data.matchesFound
+        });
+        
+        if (results.data.matchesFound === 0) {
+          alert(`Auto-Match concluído!\n\nAnalisados: ${results.data.totalCandidatesAnalyzed} candidatos\nMatches encontrados: 0\n\n${results.data.message || 'Nenhum candidato atingiu o score mínimo de 70%.'}`);
+        } else {
+          setAutoMatchResults(results.data);
+          setShowAutoMatchPopup(true);
+        }
+        
+        // Recarregar dados dos candidatos (scores foram atualizados)
+        await fetchAllData(profile);
+      } else {
+        console.error('❌ Auto-Match falhou:', results.error);
+        alert('Erro ao executar auto-match: ' + (results.error || 'Erro desconhecido'));
+      }
+      
+    } catch (error) {
+      console.error('❌ Erro no auto-match:', error);
+      alert('Erro ao executar auto-match: ' + (error instanceof Error ? error.message : 'Erro desconhecido'));
+    } finally {
+      setExecutingAutoMatch(false);
+      console.log('🏁 Auto-Match finalizado');
+    }
+  };
+
+  const handleContactCandidate = async (candidateId: number) => {
+    try {
+      console.log('📞 Contatar candidato:', candidateId);
+      // Implementar lógica de contato via WhatsApp
+    } catch (error) {
+      console.error('Erro ao contatar candidato:', error);
+    }
+  };
   
   if (!selectedJob) {
     return (
@@ -367,9 +444,24 @@ const ResultsPage: React.FC = () => {
             <p className="text-gray-600 mt-1">Gerencie os candidatos da sua vaga.</p>
           </div>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <button onClick={() => setIsUploadModalOpen(true)} className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md bg-indigo-600 text-white hover:bg-indigo-700">
-              <UploadCloud size={16} /> Fazer Upload
-            </button>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => setIsUploadModalOpen(true)} 
+                className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+              >
+                <UploadCloud size={16} /> Fazer Upload
+              </button>
+              
+              <button 
+                onClick={handleExecuteAutoMatch}
+                disabled={executingAutoMatch}
+                className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-md bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              >
+                <Sparkles size={16} className={executingAutoMatch ? 'animate-spin' : ''} />
+                {executingAutoMatch ? 'Analisando...' : 'Auto-Match com IA'}
+              </button>
+            </div>
+            
             <div className="w-full sm:w-auto flex items-center bg-white border p-1 rounded-lg">
               <button onClick={() => setViewMode('table')} className={`w-1/2 sm:w-auto p-2 rounded-md ${viewMode === 'table' ? 'bg-indigo-100 text-indigo-600' : 'text-gray-500 hover:bg-gray-100'}`}><List size={20} className="mx-auto" /></button>
               <button onClick={() => setViewMode('kanban')} className={`w-1/2 sm:w-auto p-2 rounded-md ${viewMode === 'kanban' ? 'bg-indigo-100 text-indigo-600' : 'text-gray-500 hover:bg-gray-100'}`}><LayoutGrid size={20} className="mx-auto" /></button>
@@ -451,6 +543,21 @@ const ResultsPage: React.FC = () => {
           onConfirm={handleRejectionConfirm}
           onCancel={handleRejectionCancel}
           isLoading={isUpdatingStatus}
+        />
+      )}
+      
+      {/* Auto-Match Popup */}
+      {showAutoMatchPopup && autoMatchResults && (
+        <AutoMatchPopup
+          isOpen={showAutoMatchPopup}
+          onClose={() => setShowAutoMatchPopup(false)}
+          jobData={{
+            cargo: selectedJob.titulo,
+            titulo: selectedJob.titulo,
+            empresa: 'Sua Empresa' // Pode pegar de selectedJob se tiver
+          }}
+          matchResults={autoMatchResults}
+          onContactCandidate={handleContactCandidate}
         />
       )}
     </>

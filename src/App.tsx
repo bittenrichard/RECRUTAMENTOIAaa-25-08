@@ -18,6 +18,7 @@ import ResultsPage from './features/results/components/ResultsPage';
 import SettingsPage from './features/settings/components/SettingsPage';
 import CandidateDatabasePage from './features/database/components/CandidateDatabasePage';
 import AgendaPage from './features/agenda/components/AgendaPage';
+import JobDetailPage from './features/jobs/components/JobDetailPage';
 import { PublicTestPage } from './features/behavioral/components';
 import { TheoreticalMainPage } from './features/theoretical';
 import PublicTheoreticalTestPage from './features/theoretical/components/PublicTheoreticalTestPage';
@@ -95,12 +96,20 @@ function App() {
                     <Route path="/dashboard" element={<DashboardPage />} />
                     <Route path="/nova-triagem" element={<NewScreeningPage 
                       onJobCreated={(newJob) => {
+                        console.log('🎯 App.tsx recebeu vaga:', newJob);
+                        console.log('🆔 ID para redirecionar:', newJob.id);
+                        
                         // Adicionar a nova vaga ao store
                         useDataStore.getState().addJob(newJob);
-                        navigate('/dashboard');
+                        
+                        // Redirecionar para a página de RESULTADOS (Kanban)
+                        const redirectUrl = `/vaga/${newJob.id}/resultados`;
+                        console.log('🚀 Redirecionando para página de resultados:', redirectUrl);
+                        navigate(redirectUrl);
                       }} 
                       onCancel={() => navigate('/dashboard')} 
                     />} />
+                    <Route path="/vaga/:jobId" element={<JobDetailPage />} />
                     <Route path="/vaga/:jobId/editar" element={<EditScreeningPage />} />
                     <Route path="/vaga/:jobId/resultados" element={<ResultsPage />} />
                     <Route path="/configuracoes" element={<SettingsPage />} />

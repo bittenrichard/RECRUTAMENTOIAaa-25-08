@@ -11,6 +11,7 @@ interface RequirementsData {
 }
 
 interface NewJobData {
+  id?: number; // ID real do Baserow (quando disponível)
   titulo: string;
   endereco: string;
   modo_trabalho: 'presencial' | 'remoto' | 'hibrido';
@@ -29,9 +30,12 @@ const NewScreeningPage: React.FC<NewScreeningPageProps> = ({
   onCancel
 }) => {
   const handleJobCreated = (newJobData: NewJobData) => {
+    console.log('📥 NewScreeningPage recebeu:', newJobData);
+    console.log('🆔 ID recebido:', newJobData.id);
+    
     // Converter os dados do novo formato para o formato esperado
     const jobPosting: JobPosting = {
-      id: Date.now(),
+      id: newJobData.id || Date.now(), // Usar ID real se disponível, senão temporário
       order: '',
       titulo: newJobData.titulo,
       descricao: newJobData.descricao,
@@ -44,6 +48,9 @@ const NewScreeningPage: React.FC<NewScreeningPageProps> = ({
       averageScore: 0
     };
 
+    console.log('📤 NewScreeningPage passando para App.tsx:', jobPosting);
+    console.log('🆔 ID final:', jobPosting.id);
+    
     onJobCreated(jobPosting);
   };
 
